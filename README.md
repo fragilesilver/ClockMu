@@ -1,6 +1,6 @@
 ## ClockMu
 
-An alarm clock for **[muOS](https://muos.dev/) Andromeda** on the **Anbernic RG35XX family** (all Allwinner H700 — Pro, Plus, H, SP, 2024).
+An alarm clock for **[muOS](https://muos.dev/) Andromeda** on the **Anbernic RG35XX family** (all Allwinner H700 - Pro, Plus, H, SP, 2024).
 Built with LÖVE2D on the shared **[fskit](#-built-on-fskit)** kit. Jacaranda-compatible.
 
 Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcuong1312](https://github.com/nvcuong1312).
@@ -14,7 +14,7 @@ Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcu
 - Preset time picker (every 15 minutes)
 - 8-colour in-app theme picker with light/dark balance
 - Data persistence across reboots, independent of LÖVE's save-dir
-- Letterboxed 640×480 render — safe on every RG35XX panel variant, and on HDMI-out
+- Letterboxed 640×480 render - safe on every RG35XX panel variant, and on HDMI-out
 
 ### 📥 Installation
 1. Download the latest `.muxapp` from [Releases](https://github.com/fragilesilver/ClockMu/releases).
@@ -93,9 +93,9 @@ Ocean Blue, Yoga White, and the default Mustard.
 ### 🧩 Built on fskit
 
 ClockMu, [JarMu](https://github.com/fragilesilver/JarMu) and
-[BatteryMu](https://github.com/fragilesilver/BatteryMu) share **fskit** — a small
+[BatteryMu](https://github.com/fragilesilver/BatteryMu) share **fskit** - a small
 LÖVE2D kit providing the letterboxed 640×480 screen, the theme model and palette,
-fonts, glyphs, input abstraction and the header/footer chrome — so the three apps
+fonts, glyphs, input abstraction and the header/footer chrome - so the three apps
 look, feel and behave the same on every RG35XX variant.
 
 ### 🙏 Credits
@@ -109,4 +109,4 @@ GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ---
 
-Part of the **fragilesilver** muOS app family — [ClockMu](https://github.com/fragilesilver/ClockMu) · [JarMu](https://github.com/fragilesilver/JarMu) · [BatteryMu](https://github.com/fragilesilver/BatteryMu).
+Part of the **fragilesilver** muOS app family - [ClockMu](https://github.com/fragilesilver/ClockMu) · [JarMu](https://github.com/fragilesilver/JarMu) · [BatteryMu](https://github.com/fragilesilver/BatteryMu).
