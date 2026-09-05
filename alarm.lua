@@ -6,14 +6,17 @@ local Alarm = {}
 -- Alarm object factory
 -- ============================================================
 -- repeat_days: 7-bit integer, bit 1=Mon … bit 7=Sun.  0 = one-shot.
-function Alarm.New(hour, minute, label, repeat_days, enabled)
+function Alarm.New(hour, minute, label, repeat_days, enabled, snooze_idx)
+    local n = #Config.SNOOZE_OPTIONS
+    snooze_idx = tonumber(snooze_idx) or Config.DEFAULT_SNOOZE
+    if snooze_idx < 1 or snooze_idx > n then snooze_idx = Config.DEFAULT_SNOOZE end
     return {
         hour        = hour        or 7,
         minute      = minute      or 0,
         label       = label       or "Alarm",
         repeat_days = repeat_days or 0,       -- 0 = once
         enabled     = (enabled == nil) and true or enabled,
-        snooze_idx  = Config.DEFAULT_SNOOZE,
+        snooze_idx  = snooze_idx,
         state       = "idle",  -- idle | ringing | snoozed
         snooze_until = nil,    -- os.time() target when snoozed
     }
@@ -25,12 +28,12 @@ end
 -- ============================================================
 function Alarm.Serialize(alarm)
     return string.format("%d|%d|%s|%d|%s|%d",
-        alarm.hour,
-        alarm.minute,
-        alarm.label:gsub("|",""),   -- strip pipes from labels
-        alarm.repeat_days,
+        alarm.hour or 0,
+        alarm.minute or 0,
+        (alarm.label or "Alarm"):gsub("|",""),   -- strip pipes from labels
+        alarm.repeat_days or 0,
         alarm.enabled and "1" or "0",
-        alarm.snooze_idx)
+        alarm.snooze_idx or Config.DEFAULT_SNOOZE)
 end
 
 function Alarm.Deserialize(line)
@@ -38,7 +41,7 @@ function Alarm.Deserialize(line)
     if not h then return nil end
     return Alarm.New(
         tonumber(h), tonumber(m), lbl,
-        tonumber(rep), en == "1"
+        tonumber(rep), en == "1", tonumber(sn)   -- snooze_idx now round-trips
     )
 end
 
@@ -46,24 +49,20 @@ end
 -- Save / Load all alarms to data/alarms.txt
 -- ============================================================
 function Alarm.SaveAll(alarms)
-    love.filesystem.createDirectory("data")   -- ensure directory exists
     local lines = {}
     for _, a in ipairs(alarms) do
         table.insert(lines, Alarm.Serialize(a))
     end
-    local ok, err = love.filesystem.write(Config.ALARMS_PATH, table.concat(lines, "\n") .. "\n")
+    local ok = Config.store.write(Config.ALARMS_FILE, table.concat(lines, "\n") .. "\n")
     if not ok then
-        print("Failed to save alarms:", err)
+        print("[ClockMu] Failed to save alarms")
     end
-    return ok, err
+    return ok
 end
 
 function Alarm.LoadAll()
     local alarms = {}
-    if not love.filesystem.getInfo(Config.ALARMS_PATH) then
-        return alarms
-    end
-    local contents, _ = love.filesystem.read(Config.ALARMS_PATH)
+    local contents = Config.store.read(Config.ALARMS_FILE)
     if not contents then return alarms end
     for line in contents:gmatch("[^\n]+") do
         local a = Alarm.Deserialize(line)
@@ -78,10 +77,12 @@ end
 -- Time helpers
 -- ============================================================
 function Alarm.TimeString(alarm)
-    return string.format("%02d:%02d", alarm.hour, alarm.minute)
+    if not alarm then return "--:--" end
+    return string.format("%02d:%02d", alarm.hour or 0, alarm.minute or 0)
 end
 
 function Alarm.RepeatString(alarm)
+    if not alarm then return "" end
     if alarm.repeat_days == 0 then return "Once" end
     if alarm.repeat_days == 127 then return "Every day" end
     -- Weekdays = Mon-Fri = bits 1-5 = 0b0011111 = 31
@@ -101,6 +102,7 @@ end
 -- Check if an alarm should fire right now
 -- ============================================================
 function Alarm.ShouldFire(alarm)
+    if not alarm then return false end
     if not alarm.enabled then return false end
     if alarm.state == "ringing" then return false end
 

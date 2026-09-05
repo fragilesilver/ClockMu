@@ -1,27 +1,30 @@
 ## ClockMu
 
-An alarm clock app for **[Mustard OS(muOS)](https://muos.dev/): 2601.1 Funky Jacaranda** on the **[Anbernic RG35XX Pro](https://anbernic.com/products/rg35xxpro)**.  
-Built with LÖVE2D, matching the muOS Mustard colour theme.
+An alarm clock for **[muOS](https://muos.dev/) Andromeda** on the **Anbernic RG35XX family** (all Allwinner H700 — Pro, Plus, H, SP, 2024).
+Built with LÖVE2D on the shared **[fskit](#-built-on-fskit)** kit. Jacaranda-compatible.
 
 Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcuong1312](https://github.com/nvcuong1312).
 
 <img width="640" height="480" alt="Main Screen" src="https://github.com/user-attachments/assets/f20cbf92-68a0-4413-8677-75872a1069dd" />
 
-### 🚀 Features  
-- Set and manage multiple alarms (max configurable)  
-- Repeat options: daily, weekly (specific days), or once  
-- Snooze with custom durations (per alarm)  
-- Preset time picker (every 15 minutes)  
-- Configurable colour themes and sound  
-- Data persistence across reboots  
+### 🚀 Features
+- Set and manage multiple alarms
+- Repeat options: daily, weekly (specific days), or once
+- Snooze with custom durations (per alarm)
+- Preset time picker (every 15 minutes)
+- 8-colour in-app theme picker with light/dark balance
+- Data persistence across reboots, independent of LÖVE's save-dir
+- Letterboxed 640×480 render — safe on every RG35XX panel variant, and on HDMI-out
 
-### 📥 Installation  
-1. Download the latest release from [GitHub Releases](https://github.com/mdhaziqomar/ClockMu/releases).  
-2. Follow the installation instructions in the documentation.  
+### 📥 Installation
+1. Download the latest `.muxapp` from [Releases](https://github.com/fragilesilver/ClockMu/releases).
+2. Copy it to `ARCHIVE/` on your SD card.
+3. On the device: **Applications → Archive Manager**, select the file.
+4. Launch from **Applications → ClockMu**.
 
-### 🎮 Controls  
+### 🎮 Controls
 
-#### Main Screen  
+#### Main Screen
 | Button | Action |
 |--------|--------|
 | D-pad Up/Down | Navigate alarm list |
@@ -47,7 +50,7 @@ Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcu
 <br>
 <img width="640" height="480" alt="Keyboard" src="https://github.com/user-attachments/assets/fd8f3256-7145-45cc-89b9-a87eae28d600" />
 
-#### Preset Time Picker  
+#### Preset Time Picker
 | Button | Action |
 |--------|--------|
 | Up/Down | Scroll times |
@@ -55,47 +58,55 @@ Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcu
 | **A** | Select time |
 | **B** | Cancel |
 
-#### When Alarm Rings  
+#### When Alarm Rings
 | Button | Action |
 |--------|--------|
-| **A** | Snooze (5 / 10 / 15 min — per alarm setting) |
+| **A** | Snooze (per alarm setting) |
 | **B** | Dismiss |
 
 <img width="640" height="480" alt="Alert" src="https://github.com/user-attachments/assets/a23ddbfa-3645-41f5-b1fa-833c9d0de528" />
 
-### 💾 Data Persistence  
+### 💾 Data Persistence
 
-Alarms are saved to `data/alarms.txt` automatically whenever you add, edit, delete, or dismiss an alarm. They persist across reboots.
+Alarms and settings are written to `save/` under the app directory (via the
+`CLOCKMU_DATA` path the launcher exports) whenever you add, edit, delete, or
+dismiss an alarm. They persist across reboots and app updates, and don't depend
+on LÖVE's save-dir resolution under muOS bind-storage.
 
-### 📝 Notes  
+### 📝 Notes
 
-- Alarms only fire while ClockMu is running (muOS foreground app).  
-- One-shot alarms (Repeat: Once) disable themselves after firing.  
-- Snoozed alarms resume ringing after the chosen snooze duration.  
+- Alarms only fire while ClockMu is the muOS foreground app.
+- One-shot alarms (Repeat: Once) disable themselves after firing.
+- Snoozed alarms resume ringing after the chosen snooze duration.
+- The launcher maxes system volume on entry and restores your previous level on exit.
 
-### 📚 Available Themes:  
+### 🎨 Themes
+
+Eight in-app colour themes (this is ClockMu's own picker, not a muOS theme):
+Bloody Red, Forest Green, Funky Purple, Intense Orange, Midnight Black,
+Ocean Blue, Yoga White, and the default Mustard.
 
 <img width="640" height="480" alt="Bloody Red Theme" src="https://github.com/user-attachments/assets/ac3266be-8f14-422f-a66d-714d422908c6" />
-
-- Bloodty Red
 <img width="640" height="480" alt="Forest Green Theme" src="https://github.com/user-attachments/assets/60808220-5e4b-4c50-8254-a30426a2b306" />
-
-- Forest Green
-<img width="640" height="480" alt="Funky Purple Theme" src="https://github.com/user-attachments/assets/fb0dc343-731e-47be-8a01-15c8a417faae" />
-
-- Funky Purple
-<img width="640" height="480" alt="Intense Orange Theme" src="https://github.com/user-attachments/assets/db1436bb-c2fe-449f-b68e-14220fc763f4" />
-
-- Intense Orange
-<img width="640" height="480" alt="Midnight Black Theme" src="https://github.com/user-attachments/assets/1a4f3172-f047-413a-ae09-96bb09dafec4" />
-
-- Midnight Black
 <img width="640" height="480" alt="Ocean Blue Theme" src="https://github.com/user-attachments/assets/4dc2f7f2-ad23-435c-ad97-cda530dda675" />
 
-- Ocean Blue
-<img width="640" height="480" alt="Yoga White Theme" src="https://github.com/user-attachments/assets/c3aa5005-c077-492c-a498-f522d56a9669" />
+### 🧩 Built on fskit
 
-- Yoga White 
+ClockMu, [JarMu](https://github.com/fragilesilver/JarMu) and
+[BatteryMu](https://github.com/fragilesilver/BatteryMu) share **fskit** — a small
+LÖVE2D kit providing the letterboxed 640×480 screen, the theme model and palette,
+fonts, glyphs, input abstraction and the header/footer chrome — so the three apps
+look, feel and behave the same on every RG35XX variant.
 
+### 🙏 Credits
 
+- LÖVE2D aarch64 runtime by [Cebion/love2d_aarch64](https://github.com/Cebion/love2d_aarch64)
+- Built for the muOS community
 
+### 📄 Licence
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+---
+
+Part of the **fragilesilver** muOS app family — [ClockMu](https://github.com/fragilesilver/ClockMu) · [JarMu](https://github.com/fragilesilver/JarMu) · [BatteryMu](https://github.com/fragilesilver/BatteryMu).

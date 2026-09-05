@@ -1,6 +1,7 @@
-local love = require("love")
+local love   = require("love")
 local Config = require("config")
 local Alarm  = require("alarm")
+local fskit  = require("fskit")
 
 -- ============================================================
 -- LAYOUT CONSTANTS  (all at 640x480 logical resolution)
@@ -75,8 +76,7 @@ local ic = {}   -- ic.A, ic.B, ic.X, ic.Y, ic.L1, ic.R1
 -- COLOUR HELPERS
 -- ============================================================
 local function C(key, a)
-    local t = Config.T()[key]
-    love.graphics.setColor(t[1], t[2], t[3], a or 1)
+    fskit.theme.rgba(key, a)
 end
 
 local function CR(col, a)
@@ -110,28 +110,7 @@ local function rect(mode, x, y, w, h, r)
     love.graphics.rectangle(mode, x, y, w, h, r or 0, r or 0)
 end
 
--- Draw icon + label, advance x, return new x
-local function btnHint(icon, label, x, y, font)
-    love.graphics.setFont(font)
-    C("text_primary")
-    love.graphics.draw(icon, x, y + (BTN_BAR_H - 20) / 2)
-    C("text_secondary")
-    love.graphics.print(label, x + 26, y + (BTN_BAR_H - font:getHeight()) / 2)
-    return x + 22 + font:getWidth(label) + 10
-end
-
--- Draw right-aligned icon+label pair, return left edge used
-local function btnHintRight(icon, label, rightEdge, y, font)
-    love.graphics.setFont(font)
-    local lw = font:getWidth(label)
-    local totalW = 22 + lw
-    local x = rightEdge - totalW - 8
-    C("text_primary")
-    love.graphics.draw(icon, x, y + (BTN_BAR_H - 20) / 2)
-    C("text_secondary")
-    love.graphics.print(label, x + 26, y + (BTN_BAR_H - font:getHeight()) / 2)
-    return x
-end
+-- (button-hint drawing now lives in fskit.ui.footer)
 
 -- ============================================================
 -- BUILD PRESET TIME LIST
@@ -189,7 +168,7 @@ local function drawHeader()
     -- Theme name (centre)
     love.graphics.setFont(fBoldXs)
     C("text_disabled")
-    local tn = Config.THEMES[Config.ACTIVE_THEME].name
+    local tn = fskit.theme.name()
     local tnw = fBoldXs:getWidth(tn)
     love.graphics.print(tn, SW/2 - tnw/2, (HDR_H - fBoldXs:getHeight()) / 2)
 end
@@ -242,7 +221,7 @@ local function drawAlarmList()
 
         -- Row bg
         if isRinging then
-            C(ringFlash and "col_ringing" or "bg_row", ringFlash and 0.7 or 1)
+            C(ringFlash and "warn" or "bg_row", ringFlash and 0.7 or 1)
         elseif isSel then
             C("bg_row_sel", 0.25)
         else
@@ -258,7 +237,7 @@ local function drawAlarmList()
 
         -- Time (left)
         love.graphics.setFont(fBoldBig)
-        C(a.enabled and (isRinging and "col_ringing" or "accent_glow") or "text_disabled")
+        C(a.enabled and (isRinging and "warn" or "accent_glow") or "text_disabled")
         love.graphics.print(Alarm.TimeString(a), LIST_X + 8, ry + 6)
 
         -- Label (top-right area)
@@ -277,7 +256,7 @@ local function drawAlarmList()
         love.graphics.print(snoozeStr, LIST_X + LIST_W - snW - 26, ry + 24)
 
         -- Enabled dot (far right)
-        if a.enabled then C("col_enabled") else C("col_disabled") end
+        if a.enabled then C("ok") else C("muted") end
         love.graphics.circle("fill", LIST_X + LIST_W - 12, ry + 12, 6)
 
         -- Snoozed badge
@@ -289,31 +268,18 @@ local function drawAlarmList()
     end
 end
 
-local function drawBottomBar(hints)
-    -- Bar background
-    C("bg_btn_bar")
-    rect("fill", 0, BTN_BAR_Y, SW, BTN_BAR_H)
-    C("accent_dim", 0.3)
-    love.graphics.line(0, BTN_BAR_Y, SW, BTN_BAR_Y)
+-- Main-screen button-hint bar (routes through fskit.ui.footer -> safe-area aware)
+local MAIN_HINTS = {
+    { icon = "a",  label = "Edit"   },
+    { icon = "x",  label = "Toggle" },
+    { icon = "y",  label = "Add"    },
+    { icon = "l1", label = "Delete" },
+    { icon = "r1", label = "Theme"  },
+    { icon = "b",  label = "Quit", side = "right" },
+}
 
-    -- Left hints
-    local x = 8
-    for _, h in ipairs(hints.left or {}) do
-        x = btnHint(h[1], h[2], x, BTN_BAR_Y, fBoldXs)
-    end
-
-    -- Right hints (B Quit always right-aligned with safe margin)
-    local rx = SW - 8
-    for i = #(hints.right or {}), 1, -1 do
-        local h = hints.right[i]
-        love.graphics.setFont(fBoldXs)
-        local lw = fBoldXs:getWidth(h[2])
-        rx = rx - lw - 22 - 4
-        C("text_primary")
-        love.graphics.draw(h[1], rx, BTN_BAR_Y + (BTN_BAR_H - 20) / 2)
-        C("text_secondary")
-        love.graphics.print(h[2], rx + 26, BTN_BAR_Y + (BTN_BAR_H - fBoldXs:getHeight()) / 2)
-    end
+local function drawBottomBar()
+    fskit.ui.footer.draw(MAIN_HINTS, { h = BTN_BAR_H, font = fBoldXs })
 end
 
 -- ============================================================
@@ -450,7 +416,7 @@ local function drawEditModal()
 
         elseif fi == 6 then  -- Enabled
             love.graphics.setFont(fBoldMed)
-            C(editAlarm.enabled and "col_enabled" or "col_disabled")
+            C(editAlarm.enabled and "ok" or "muted")
             love.graphics.print(editAlarm.enabled and "ON" or "OFF", valX, fy + 10)
         end
 
@@ -726,10 +692,11 @@ local function drawThemePicker()
     local rowH   = 34
     local startY = my + 40
 
-    for ti, theme in ipairs(Config.THEMES) do
-        local ry2  = startY + (ti - 1) * rowH
+    for ti = 1, fskit.theme.count() do
+        local pal   = fskit.theme.palette(ti)
+        local ry2   = startY + (ti - 1) * rowH
         local isSel = (ti == themeSelIdx)
-        local isCur = (ti == Config.ACTIVE_THEME)
+        local isCur = (ti == fskit.theme.index())
 
         if isSel then
             C("bg_row_sel", 0.3)
@@ -739,7 +706,7 @@ local function drawThemePicker()
         end
 
         -- Colour swatch
-        local sw = theme.accent
+        local sw = pal.accent
         love.graphics.setColor(sw[1], sw[2], sw[3], 1)
         rect("fill", mx + 10, ry2 + 7, 18, 18, 3)
         love.graphics.setColor(1,1,1,0.4)
@@ -748,12 +715,12 @@ local function drawThemePicker()
         -- Name
         love.graphics.setFont(isSel and fBoldMed or fMed)
         C(isSel and "accent_glow" or "text_primary")
-        love.graphics.print(theme.name, mx + 36, ry2 + 8)
+        love.graphics.print(pal.name, mx + 36, ry2 + 8)
 
         -- Active badge
         if isCur then
             love.graphics.setFont(fBoldXs)
-            C("col_enabled")
+            C("ok")
             love.graphics.print("[active]", mx + mw - 70, ry2 + 10)
         end
     end
@@ -793,11 +760,11 @@ local function drawRinging()
 
     C("bg_modal")
     rect("fill", mx, my, mw, mh, 10)
-    C("col_ringing", 0.9)
+    C("warn", 0.9)
     rect("line", mx, my, mw, mh, 10)
 
     -- Header strip
-    C("col_ringing", ringFlash and 0.8 or 0.5)
+    C("warn", ringFlash and 0.8 or 0.5)
     rect("fill", mx, my, mw, 38, 10)
     rect("fill", mx, my + 24, mw, 14)
 
@@ -831,7 +798,7 @@ local function drawRinging()
     -- Dismiss right
     local dlabel = "Dismiss"
     local dlw    = fBoldSm:getWidth(dlabel)
-    C("col_ringing", 0.9); love.graphics.draw(ic.B, mx + mw - dlw - 30, bbY + 12)
+    C("warn", 0.9); love.graphics.draw(ic.B, mx + mw - dlw - 30, bbY + 12)
     C("text_primary"); love.graphics.print(dlabel, mx + mw - dlw - 6, bbY + 14)
 end
 
@@ -870,30 +837,33 @@ end
 -- LOVE CALLBACKS
 -- ============================================================
 function love.load()
-    fClock    = love.graphics.newFont(Config.FONT_BOLD_PATH, 54)
-    fBoldBig  = love.graphics.newFont(Config.FONT_BOLD_PATH, 20)
-    fBoldMed  = love.graphics.newFont(Config.FONT_BOLD_PATH, 15)
-    fBoldSm   = love.graphics.newFont(Config.FONT_BOLD_PATH, 13)
-    fBoldXs   = love.graphics.newFont(Config.FONT_BOLD_PATH, 11)
-    fBig      = love.graphics.newFont(Config.FONT_PATH, 18)
-    fMed      = love.graphics.newFont(Config.FONT_PATH, 14)
-    fSm       = love.graphics.newFont(Config.FONT_PATH, 11)
+    fskit.load()
 
-    ic.A  = love.graphics.newImage("Assets/Icon/Xbox A.png")
-    ic.B  = love.graphics.newImage("Assets/Icon/Xbox B.png")
-    ic.X  = love.graphics.newImage("Assets/Icon/Xbox X.png")
-    ic.Y  = love.graphics.newImage("Assets/Icon/Xbox Y.png")
-    ic.L1 = love.graphics.newImage("Assets/Icon/L1.png")
-    ic.R1 = love.graphics.newImage("Assets/Icon/R1.png")
-	ic.start = love.graphics.newImage("Assets/Icon/Start.png")
+    fClock   = fskit.font.clock
+    fBoldBig = fskit.font.big
+    fBoldMed = fskit.font.med
+    fBoldSm  = fskit.font.sm
+    fBoldXs  = fskit.font.xs
+    fBig     = fskit.font.body_lg
+    fMed     = fskit.font.body
+    fSm      = fskit.font.body_sm
+
+    ic.A     = fskit.glyph.get("a")
+    ic.B     = fskit.glyph.get("b")
+    ic.X     = fskit.glyph.get("x")
+    ic.Y     = fskit.glyph.get("y")
+    ic.L1    = fskit.glyph.get("l1")
+    ic.R1    = fskit.glyph.get("r1")
+    ic.start = fskit.glyph.get("start")
+
+    fskit.theme.bind{ load = Config.LoadTheme, save = Config.SaveTheme }
+    fskit.input.hook(OnKeyPress)
 
     buildPresets()
-    Config.LoadSettings()
-    alarms = Alarm.LoadAll()
-    tryLoadSound()
-	
-	-- ★★★ ADD THIS LINE ★★★
     love.filesystem.createDirectory("data")
+    alarms = Alarm.LoadAll()
+    if #alarms > 0 then Alarm.SaveAll(alarms) end   -- persist source->save on first run
+    tryLoadSound()
 end
 
 function love.update(dt)
@@ -921,10 +891,7 @@ function love.update(dt)
 end
 
 function love.draw()
-    local sx = love.graphics.getWidth()  / SW
-    local sy = love.graphics.getHeight() / SH
-    love.graphics.push()
-    love.graphics.scale(sx, sy)
+    fskit.screen.begin()
 
     C("bg_main")
     rect("fill", 0, 0, SW, SH)
@@ -935,17 +902,7 @@ function love.draw()
 
     -- Main screen bottom bar
     if scene == "main" then
-        local T = Config.T()
-        drawBottomBar({
-            left  = {
-                {ic.A,  "Edit"},
-                {ic.X,  "Toggle"},
-                {ic.Y,  "Add"},
-                {ic.L1, "Delete"},
-                {ic.R1, "Theme"},
-            },
-            right = {{ic.B, "Quit"}},
-        })
+        drawBottomBar()
     end
 
     -- Scene overlays
@@ -957,27 +914,16 @@ function love.draw()
     if scene == "ringing"     then drawRinging()     end
     if scene == "quit"        then drawQuitConfirm() end
 
-    love.graphics.pop()
+    fskit.screen.finish()
+end
+
+function love.resize(w, h)
+    fskit.screen.resize(w, h)
 end
 
 -- ============================================================
--- INPUT ROUTING
+-- INPUT ROUTING   (love callbacks are wired by fskit.input.hook in love.load)
 -- ============================================================
-function love.keypressed(key)
-    OnKeyPress(key)
-end
-
-function love.gamepadpressed(joystick, button)
-    local map = {
-        dpleft="left", dpright="right", dpup="up", dpdown="down",
-        a="a", b="b", x="x", y="y",
-        back="select", start="start",
-        leftshoulder="l1", rightshoulder="r1",
-    }
-    local k = map[button]
-    if k then OnKeyPress(k) end
-end
-
 function OnKeyPress(key)
     -- ---- Quit ----
     if scene == "quit" then
@@ -1007,12 +953,11 @@ function OnKeyPress(key)
 
     -- ---- Theme picker ----
     if scene == "theme" then
-        local n = #Config.THEMES
+        local n = fskit.theme.count()
         if key == "up"   then themeSelIdx = themeSelIdx > 1 and themeSelIdx - 1 or n end
         if key == "down" then themeSelIdx = themeSelIdx < n and themeSelIdx + 1 or 1 end
         if key == "a" then
-            Config.ACTIVE_THEME = themeSelIdx
-            Config.SaveSettings()
+            fskit.theme.set(themeSelIdx)   -- persists via Config.SaveTheme
             scene = "main"
         end
         if key == "b" then scene = "main" end
@@ -1217,19 +1162,19 @@ function OnKeyPress(key)
         end
 
         if key == "r1" then
-            themeSelIdx = Config.ACTIVE_THEME
+            themeSelIdx = fskit.theme.index()
             scene = "theme"
         end
 
         if key == "b" then scene = "quit" end
     end
-	
-	function love.quit()
-		-- Save all alarms before quitting
-		Alarm.SaveAll(alarms)
-		-- Save current theme and other settings
-		Config.SaveSettings()
-		-- Return nothing (allow quit)
-	end
-	
+end
+
+-- ============================================================
+-- QUIT  (top-level: fires however the app is closed)
+-- ============================================================
+function love.quit()
+    Alarm.SaveAll(alarms)
+    Config.SaveTheme(fskit.theme.index())   -- theme is also saved on change; belt and braces
+    return false
 end
