@@ -75,9 +75,27 @@ local ic = {}   -- ic.A, ic.B, ic.X, ic.Y, ic.L1, ic.R1
 -- ============================================================
 -- COLOUR HELPERS
 -- ============================================================
+-- ClockMu's old Tier-3 extension keys mapped onto the shared fskit roles
+-- (docs/love-kit-spec.md v2 -- one colour language across the 4 apps).
+local ROLE = {
+    text_accent  = "accent",
+    accent_dim   = "separator",
+    bg_row       = "bg_panel",
+    bg_row_sel   = "bg_panel",
+    bg_modal     = "bg_panel",
+    bg_modal_hdr = "bg_header",
+    col_snooze   = "discharging",
+}
 local function C(key, a)
-    fskit.theme.rgba(key, a)
+    fskit.theme.rgba(ROLE[key] or key, a)
 end
+
+-- Modal rise-in (shared "animation feel"): backdrop dims + panel lifts ~8px
+local modalT = 0
+local MODAL_DUR = 0.13
+local function modalK() return math.min(1, modalT / MODAL_DUR) end
+local function modalDim() return 0.72 * modalK() end
+local function modalRise() return (1 - fskit.motion.ease.outCubic(modalK())) * 8 end
 
 local function CR(col, a)
     love.graphics.setColor(col[1], col[2], col[3], a or 1)
@@ -286,9 +304,9 @@ end
 -- MODAL SHELL  (draws dimmed backdrop + rounded panel)
 -- ============================================================
 local function modalShell(x, y, w, h, title)
-    -- Backdrop
-    love.graphics.setColor(0, 0, 0, 0.72)
-    rect("fill", 0, 0, SW, SH)
+    -- Backdrop (oversized so the rise-in translate never exposes an edge)
+    love.graphics.setColor(0, 0, 0, modalDim())
+    rect("fill", -16, -16, SW + 32, SH + 32)
 
     -- Panel body
     C("bg_modal")
@@ -803,34 +821,14 @@ local function drawRinging()
 end
 
 -- ============================================================
--- QUIT CONFIRM
+-- QUIT CONFIRM  (shared fskit.ui.dialog -- identical across the 4 apps)
 -- ============================================================
-local function drawQuitConfirm()
-    love.graphics.setColor(0, 0, 0, 0.75)
-    rect("fill", 0, 0, SW, SH)
-
-    local mx, my = 160, 170
-    local mw, mh = 320, 120
-
-    modalShell(mx, my, mw, mh, "Quit ClockMu?")
-
-    love.graphics.setFont(fBoldXs)
-    C("text_secondary")
-    love.graphics.print("Alarms stop when the app closes.", mx + 10, my + 46)
-
-    local bbY = my + mh - 34
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 34, 8)
-    rect("fill", mx, bbY - 8, mw, 16)
-
-    love.graphics.setFont(fBoldXs)
-    C("text_primary"); love.graphics.draw(ic.A, mx + 4, bbY + 7)
-    C("text_secondary"); love.graphics.print("Yes, quit", mx + 30, bbY + 9)
-
-    local blabel = "No, stay"
-    local bw7 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw7 - 26 - 10, bbY + 7)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw7 - 8, bbY + 9)
+local function openQuitDialog()
+    fskit.ui.dialog.open{
+        title = "Quit ClockMu?", body = "Alarms stop when the app closes.",
+        confirm = "Quit", cancel = "Stay", tone = "accent",
+        onConfirm = function() love.event.quit() end,
+    }
 end
 
 -- ============================================================
@@ -857,7 +855,10 @@ function love.load()
     ic.start = fskit.glyph.get("start")
 
     fskit.theme.bind{ load = Config.LoadTheme, save = Config.SaveTheme }
-    fskit.input.hook(OnKeyPress)
+    -- route input: shared modal overlay (exit dialog) first, else the app
+    fskit.input.hook(function(k)
+        if fskit.scene.overlay() then fskit.scene.input(k) else OnKeyPress(k) end
+    end)
 
     buildPresets()
     love.filesystem.createDirectory("data")
@@ -867,6 +868,15 @@ function love.load()
 end
 
 function love.update(dt)
+    fskit.scene.update(dt)     -- motion clock + shared modal overlay (exit dialog)
+
+    -- modal rise-in timer (any non-main, non-ringing scene)
+    if scene == "main" or scene == "ringing" then
+        modalT = 0
+    else
+        modalT = modalT + dt
+    end
+
     if scene == "ringing" then
         ringTimer = ringTimer + dt
         if ringTimer >= 0.5 then ringTimer = 0; ringFlash = not ringFlash end
@@ -905,14 +915,21 @@ function love.draw()
         drawBottomBar()
     end
 
-    -- Scene overlays
-    if scene == "edit"        then drawEditModal()   end
-    if scene == "preset_time" then drawPresetTime()  end
-    if scene == "label_pick"  then drawLabelPicker() end
-    if scene == "keyboard"    then drawKeyboard()    end
-    if scene == "theme"       then drawThemePicker() end
-    if scene == "ringing"     then drawRinging()     end
-    if scene == "quit"        then drawQuitConfirm() end
+    -- Scene overlays -- lift ~8px on open for the shared rise-in feel
+    if scene == "edit" or scene == "preset_time" or scene == "label_pick"
+        or scene == "keyboard" or scene == "theme" then
+        love.graphics.push()
+        love.graphics.translate(0, modalRise())
+        if scene == "edit"        then drawEditModal()   end
+        if scene == "preset_time" then drawPresetTime()  end
+        if scene == "label_pick"  then drawLabelPicker() end
+        if scene == "keyboard"    then drawKeyboard()    end
+        if scene == "theme"       then drawThemePicker() end
+        love.graphics.pop()
+    end
+    if scene == "ringing" then drawRinging() end
+
+    fskit.scene.draw()   -- paints the shared exit dialog if open
 
     fskit.screen.finish()
 end
@@ -925,13 +942,6 @@ end
 -- INPUT ROUTING   (love callbacks are wired by fskit.input.hook in love.load)
 -- ============================================================
 function OnKeyPress(key)
-    -- ---- Quit ----
-    if scene == "quit" then
-        if key == "a" then love.event.quit() end
-        if key == "b" then scene = "main" end
-        return
-    end
-
     -- ---- Ringing ----
     if scene == "ringing" then
         local a = alarms[ringingIdx]
@@ -1166,7 +1176,7 @@ function OnKeyPress(key)
             scene = "theme"
         end
 
-        if key == "b" then scene = "quit" end
+        if key == "b" then openQuitDialog() end
     end
 end
 

@@ -1,6 +1,6 @@
 -- fskit/ui/header.lua
--- Top chrome bar: title on the left, optional centre + right slots. Content is
--- kept inside the safe area so it survives a cropped panel.
+-- Top chrome bar: title left, optional centre + right slots, kept inside the
+-- safe area so a cropped panel still shows it.
 --
 --   header.draw{ title = "ClockMu", centre = "Ocean Blue", right = "07:41" }
 
@@ -19,18 +19,19 @@ function header.draw(o)
 
     theme.rgba("bg_header")
     love.graphics.rectangle("fill", 0, 0, screen.W, h)
-    theme.rgba("separator", 0.5)
+    theme.rgba("separator", 0.6)
     love.graphics.setLineWidth(1)
     love.graphics.line(0, h - 0.5, screen.W, h - 0.5)
 
     if o.title then
-        love.graphics.setFont(o.titleFont or font.big)
-        theme.rgba("text_accent")
-        love.graphics.print(o.title, pad, (h - (o.titleFont or font.big):getHeight()) / 2)
+        local f = o.titleFont or font.lg
+        love.graphics.setFont(f)
+        theme.rgba("accent")
+        love.graphics.print(o.title, pad, (h - f:getHeight()) / 2)
     end
 
     if o.right then
-        local f = o.rightFont or font.med
+        local f = o.rightFont or font.sm
         love.graphics.setFont(f)
         theme.rgba("text_secondary")
         love.graphics.print(o.right, screen.W - pad - f:getWidth(o.right),

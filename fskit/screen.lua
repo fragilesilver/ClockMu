@@ -37,11 +37,17 @@ function screen.begin()
     love.graphics.clear(0, 0, 0, 1)
 end
 
--- blit the virtual canvas to the real framebuffer, centred and scaled
-function screen.finish()
+-- blit the virtual canvas to the real framebuffer, centred and scaled.
+-- Optional `shader` composites a post-process (JarMu's CRT) during the blit.
+function screen.finish(shader)
     love.graphics.setCanvas()
     love.graphics.setColor(1, 1, 1, 1)
+    if shader then
+        if shader.send then pcall(shader.send, shader, "resolution", { screen.W, screen.H }) end
+        love.graphics.setShader(shader)
+    end
     love.graphics.draw(canvas, ox, oy, 0, scale, scale)
+    if shader then love.graphics.setShader() end
 end
 
 -- safe-area rectangle in virtual coords

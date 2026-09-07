@@ -17,7 +17,7 @@ mkdir -p "$STAGE"
 # Everything except repo meta / build output / runtime data.
 tar -C "$ROOT" \
     --exclude='./.git' --exclude='./dist' --exclude='./save' --exclude='./data' \
-    --exclude='./.github' --exclude='*.log' --exclude='./build.sh' \
+    --exclude='./.github' --exclude='./test' --exclude='*.log' --exclude='./build.sh' \
     --exclude='./README.md' --exclude='./CHANGELOG.md' --exclude='./LICENSE' \
     --exclude='./VERSION' --exclude='./.gitignore' \
     -cf - . | tar -C "$STAGE" -xf -
