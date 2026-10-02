@@ -43,6 +43,26 @@ function input.hook(dispatch)
         local n = PAD[button]
         if n then dispatch(n) end
     end
+    -- L2/R2 as axes. SDL's game controller API has no trigger BUTTONS: a
+    -- mapping such as the RG35XX Pro's `lefttrigger:b8,righttrigger:b9`
+    -- (muOS internal/device/rg35xx-pro/config/board/sdl_map) reaches LÖVE as
+    -- the axes triggerleft/triggerright, so gamepadpressed never fires for
+    -- them (ScrapMu device report 2026-10-02: L2/R2 did nothing). A trigger
+    -- counts as pressed past 0.5 and must fall below 0.3 before it can fire
+    -- again, so one resting near the threshold can't chatter.
+    local AXIS = { triggerleft = "l2", triggerright = "r2" }
+    local down = {}
+    function love.gamepadaxis(_, axis, value)
+        local n = AXIS[axis]
+        if not n then return end
+        if not down[n] and value > 0.5 then
+            down[n] = true
+            dispatch(n)
+        elseif down[n] and value < 0.3 then
+            down[n] = false
+            if input.held then input.held[n] = nil end   -- the axis "release"
+        end
+    end
     -- Fallback for a pad with no gamecontroller mapping (rare on RG35XX). Skip
     -- when the gamepad path is already handling this joystick, or the d-pad
     -- would register twice.

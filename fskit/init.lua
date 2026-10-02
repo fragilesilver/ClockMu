@@ -35,6 +35,7 @@ local fskit = {
         footer = require("fskit.ui.footer"),
         list   = require("fskit.ui.list"),
         dialog = require("fskit.ui.dialog"),
+        marquee = require("fskit.ui.marquee"),
     },
 }
 

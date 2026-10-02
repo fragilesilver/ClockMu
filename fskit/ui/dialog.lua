@@ -9,6 +9,10 @@
 --     onConfirm = function() love.event.quit() end,
 --     onCancel  = function() end,
 --   }
+-- The card grows to fit: taller for every body line past the third, wider
+-- for a long title or line (up to the screen); a short dialog keeps the
+-- classic 340x156. A line still too wide for the screen slides
+-- (fskit.ui.marquee) instead of overflowing.
 
 local theme  = require("fskit.theme")
 local font   = require("fskit.font")
@@ -16,8 +20,32 @@ local glyph  = require("fskit.glyph")
 local screen = require("fskit.screen")
 local layout = require("fskit.layout")
 local scenes = require("fskit.scene")
+local marquee = require("fskit.ui.marquee")
 
 local dialog = {}
+
+-- Card geometry for these opts, from the fonts' real metrics. Returns
+-- { dw, dh, dx, dy, lines, lh, body_y, body_end, by, bh }; body_end must not
+-- pass by (the buttons' top) -- the UI tests check exactly that.
+function dialog.geometry(opts)
+    local SW, SH = screen.W, screen.H
+    local lines = {}
+    if opts.body then
+        for line in (opts.body .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+    end
+    local lh, bh = font.sm:getHeight(), 38
+    -- title at +20, body from +54, a gap, the buttons, 16 px margin
+    local dh = math.max(156, 54 + #lines * lh + 12 + bh + 16)
+    local want = 340
+    if opts.title then want = math.max(want, font.xl:getWidth(opts.title) + 40) end
+    for _, line in ipairs(lines) do want = math.max(want, font.sm:getWidth(line) + 32) end
+    local safe = screen.SAFE or 10
+    local dw = math.min(want, SW - 2 * safe)
+    dh = math.min(dh, SH - 2 * safe)
+    local dx, dy = SW / 2 - dw / 2, SH / 2 - dh / 2
+    return { dw = dw, dh = dh, dx = dx, dy = dy, lines = lines, lh = lh,
+             body_y = dy + 54, body_end = dy + 54 + #lines * lh, by = dy + dh - bh - 16, bh = bh }
+end
 
 local function close(self, run)
     scenes.clearOverlay()
@@ -42,8 +70,8 @@ function dialog.open(opts)
         theme.rgba("bg_main", 0.62)
         love.graphics.rectangle("fill", 0, 0, SW, SH)
 
-        local dw, dh = 340, 156
-        local dx, dy = SW / 2 - dw / 2, SH / 2 - dh / 2
+        local g = dialog.geometry(opts)
+        local dw, dh, dx, dy, lines, lh, bh = g.dw, g.dh, g.dx, g.dy, g.lines, g.lh, g.bh
         local tone = opts.tone or "accent"
 
         theme.rgba("bg_panel")
@@ -58,15 +86,20 @@ function dialog.open(opts)
             theme.rgba(tone == "accent" and "accent_glow" or tone)
             love.graphics.print(opts.title, SW / 2 - tw / 2, dy + 20)
         end
-        if opts.body then
+        if #lines > 0 then
+            -- line by line, so a line too long even for the widened card
+            -- slides instead of running off it (fskit.ui.marquee)
             love.graphics.setFont(font.sm)
-            local bw = font.sm:getWidth(opts.body)
             theme.rgba("text_secondary")
-            love.graphics.print(opts.body, SW / 2 - bw / 2, dy + 54)
+            local ly = dy + 54
+            for _, line in ipairs(lines) do
+                marquee(line, dx + 16, ly, dw - 32, { active = true, align = "center", font = font.sm })
+                ly = ly + lh
+            end
         end
 
         -- buttons
-        local bw, bh, gap = 120, 38, 20
+        local bw, gap = 120, 20
         local total = bw * 2 + gap
         local by = dy + dh - bh - 16
         local cancelX = SW / 2 - total / 2
