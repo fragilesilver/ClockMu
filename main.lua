@@ -13,12 +13,12 @@ local BTN_BAR_Y    = SH - BTN_BAR_H
 local CONTENT_Y    = HDR_H + 4   -- first pixel below header
 local CONTENT_H    = BTN_BAR_Y - CONTENT_Y  -- usable body height
 
-local CLOCK_H      = 88          -- big clock block height
+local CLOCK_H      = 110         -- big clock block height (fits the 64px readout + date)
 local CLOCK_Y      = CONTENT_Y + 2
 
 local LIST_X       = 12
 local LIST_W       = SW - LIST_X * 2
-local LIST_Y       = CLOCK_Y + CLOCK_H + 6
+local LIST_Y       = CLOCK_Y + CLOCK_H + 22   -- gap leaves room for the ALARMS heading
 local ALARM_ROW_H  = 44
 local LIST_H       = BTN_BAR_Y - LIST_Y - 4  -- available for rows
 
@@ -650,7 +650,7 @@ local function drawKeyboard()
                     C("text_primary")
                 end
                 love.graphics.setFont(fBoldXs)
-                local kLabel = k == "SPACE" and "Space" or k == "BACK" and "Del" or "Done"
+                local kLabel = k == "SPACE" and "Space" or k == "BACK" and "Del" or "Enter"
                 local klw = fBoldXs:getWidth(kLabel)
                 love.graphics.print(kLabel, kx + kw/2 - klw/2, kbStartY + (ri-1)*(keyH+4) + 8)
             end
@@ -685,13 +685,12 @@ local function drawKeyboard()
         C("text_secondary"); love.graphics.print(label, bx2 + 26, bbY + 7)
         bx2 = bx2 + 22 + fBoldXs:getWidth(label) + 10
     end
-    kh(ic.A, "Type key")
-    kh(ic.X, "Backspace")
-    
-    -- ★★★ Optional: Show Caps Lock state on the Y hint ★★★
+    kh(ic.A, "Type")
+    kh(ic.X, "Del")
     local capsLabel = kbCapsLock and "Caps ON" or "Caps OFF"
     kh(ic.Y, capsLabel)
-    
+    kh(ic.R1, "Enter")
+
     local blabel = "Cancel"
     local bw5 = fBoldXs:getWidth(blabel)
     C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw5 - 26 - 8, bbY + 5)
@@ -837,9 +836,12 @@ end
 function love.load()
     fskit.load()
 
+    -- NOTE: fskit's big/med are back-compat aliases for huge/xl (36/22) — far
+    -- larger than ClockMu's dense modals were laid out for. Use the lg/md rungs
+    -- (18/14), same choice as BatteryMu.
     fClock   = fskit.font.clock
-    fBoldBig = fskit.font.big
-    fBoldMed = fskit.font.med
+    fBoldBig = fskit.font.lg
+    fBoldMed = fskit.font.md
     fBoldSm  = fskit.font.sm
     fBoldXs  = fskit.font.xs
     fBig     = fskit.font.body_lg
@@ -1004,6 +1006,10 @@ function OnKeyPress(key)
             end
         elseif key == "y" then
             kbCapsLock = not kbCapsLock
+        elseif key == "r1" then
+            -- shortcut for the Enter key
+            if kbText ~= "" then editAlarm.label = kbText end
+            scene = "edit"
         elseif key == "b" then
             scene = "edit"   -- cancel keyboard, back to edit
 		elseif key == "x" then
