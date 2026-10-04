@@ -1,108 +1,61 @@
+-- ============================================================
+-- ClockMu  v2.0.0
+-- Alarm clock, up to 5 alarms with snooze. muOS Andromeda 2606.0, RG35XX family
+-- (Allwinner H700); layouts for 640x480, 720x480 and 720x720 (only 640x480 is
+-- device-tested).
+-- UI on fskit 0.3 (Bold muOS-style: docs/andromeda-design.md). The alarm logic
+-- (alarm.lua, the once-a-second tick, snooze, storage) is unchanged since 1.0;
+-- the presentation was rebuilt: scenes, lists with paging, the shared on-screen
+-- keyboard (letters + symbols) and the shared theme picker.
+-- ============================================================
+
 local love   = require("love")
 local Config = require("config")
 local Alarm  = require("alarm")
 local fskit  = require("fskit")
 
--- ============================================================
--- LAYOUT CONSTANTS  (all at 640x480 logical resolution)
--- ============================================================
-local SW, SH       = 640, 480
-local HDR_H        = 44          -- header bar height
-local BTN_BAR_H    = 40          -- bottom button bar
-local BTN_BAR_Y    = SH - BTN_BAR_H
-local CONTENT_Y    = HDR_H + 4   -- first pixel below header
-local CONTENT_H    = BTN_BAR_Y - CONTENT_Y  -- usable body height
+local L, T, SC, UI, FN = fskit.layout, fskit.theme, fskit.scene, fskit.ui, fskit.font
+local LIST, CARD, MARQ = UI.list, UI.card, UI.marquee
 
-local CLOCK_H      = 110         -- big clock block height (fits the 64px readout + date)
-local CLOCK_Y      = CONTENT_Y + 2
-
-local LIST_X       = 12
-local LIST_W       = SW - LIST_X * 2
-local LIST_Y       = CLOCK_Y + CLOCK_H + 22   -- gap leaves room for the ALARMS heading
-local ALARM_ROW_H  = 44
-local LIST_H       = BTN_BAR_Y - LIST_Y - 4  -- available for rows
+local function setC(role, a) T.rgba(role, a) end
+local function rect(mode, x, y, w, h, r) love.graphics.rectangle(mode, x, y, w, h, r or 0, r or 0) end
+local function content() return L.content() end
+local function head(title, right) UI.header.draw{ title = title, right = right } end
+local function foot(items) UI.footer.draw(items) end
+-- text on a list row: on_accent on the focus block, else the given role
+local function rowC(focused, role, a)
+    if focused then setC("on_accent", a) else setC(role, a) end
+end
 
 -- ============================================================
 -- STATE
 -- ============================================================
-local alarms    = {}
-local selIdx    = 1
-
--- Scenes: "main" | "edit" | "preset_time" | "label_pick" | "keyboard"
---         | "theme" | "ringing" | "quit"
-local scene     = "main"
+local alarms   = {}
+local selIdx   = 1
 
 -- Edit state
-local editAlarm    = nil
-local editField    = 1   -- 1=hour 2=min 3=label 4=repeat 5=snooze 6=enabled
-local editRepDay   = 1
+local editAlarm  = nil
+local editField  = 1   -- 1=hour 2=min 3=label 4=repeat 5=snooze 6=enabled
+local editRepDay = 1
 
--- Preset time picker
-local presetList   = {}
-local presetIdx    = 1
-local PRESET_PAGE  = 8
-
--- Label picker
-local labelSelIdx  = 1
-
--- Keyboard state
-local kbText       = ""
-local kbRow        = 1
-local kbCol        = 1
-local kbMaxLen     = 20
-local kbCapsLock   = false 
-
--- Theme picker
-local themeSelIdx  = 1
+local presetList, presetIdx = {}, 1
+local labelSelIdx = 1
+local themePicker
 
 -- Ringing
-local ringingIdx   = nil
-local ringTimer    = 0
-local ringFlash    = false
+local ringingIdx = nil
+local ringTimer  = 0
+local ringAge    = 0
+local ringFlash  = false
+local RING_GUARD = 0.35      -- ignore A/B for a moment, so a button mashed just as it rings can't dismiss it
 
--- Sound
 local alarmSound   = nil
-
--- Tick guard
 local lastFiredMin = -1
 
--- Fonts (loaded in love.load)
-local fClock, fBig, fMed, fSm, fBoldBig, fBoldMed, fBoldSm, fBoldXs
-
--- Icons
-local ic = {}   -- ic.A, ic.B, ic.X, ic.Y, ic.L1, ic.R1
+local fClock, fRing      -- the time readouts (Noto: tabular digits)
 
 -- ============================================================
--- COLOUR HELPERS
--- ============================================================
--- ClockMu's old Tier-3 extension keys mapped onto the shared fskit roles
--- (docs/love-kit-spec.md v2 -- one colour language across the 4 apps).
-local ROLE = {
-    text_accent  = "accent",
-    accent_dim   = "separator",
-    bg_row       = "bg_panel",
-    bg_row_sel   = "bg_panel",
-    bg_modal     = "bg_panel",
-    bg_modal_hdr = "bg_header",
-    col_snooze   = "discharging",
-}
-local function C(key, a)
-    fskit.theme.rgba(ROLE[key] or key, a)
-end
-
--- Modal rise-in (shared "animation feel"): backdrop dims + panel lifts ~8px
-local modalT = 0
-local MODAL_DUR = 0.13
-local function modalK() return math.min(1, modalT / MODAL_DUR) end
-local function modalDim() return 0.72 * modalK() end
-local function modalRise() return (1 - fskit.motion.ease.outCubic(modalK())) * 8 end
-
-local function CR(col, a)
-    love.graphics.setColor(col[1], col[2], col[3], a or 1)
-end
-
--- ============================================================
--- SAVE EDIT ALARM
+-- ALARM FLOW
 -- ============================================================
 local function saveEditAlarm()
     if editAlarm._isNew then
@@ -118,21 +71,9 @@ local function saveEditAlarm()
         alarms[idx] = editAlarm
     end
     Alarm.SaveAll(alarms)
-    scene = "main"
+    SC.go("main")
 end
 
--- ============================================================
--- DRAW HELPERS
--- ============================================================
-local function rect(mode, x, y, w, h, r)
-    love.graphics.rectangle(mode, x, y, w, h, r or 0, r or 0)
-end
-
--- (button-hint drawing now lives in fskit.ui.footer)
-
--- ============================================================
--- BUILD PRESET TIME LIST
--- ============================================================
 local function buildPresets()
     presetList = {}
     for h = 0, 23 do
@@ -142,693 +83,476 @@ local function buildPresets()
     end
 end
 
--- ============================================================
--- SOUND
--- ============================================================
 local function tryLoadSound()
     if love.filesystem.getInfo(Config.SOUND_PATH) then
         local ok, src = pcall(love.audio.newSource, Config.SOUND_PATH, "static")
         if ok then alarmSound = src; alarmSound:setLooping(true) end
     end
 end
-
 local function startRinging()
     if alarmSound then alarmSound:stop(); alarmSound:play() end
-    ringTimer = 0; ringFlash = false
+    ringTimer, ringAge, ringFlash = 0, 0, false
 end
-
 local function stopRinging()
     if alarmSound then alarmSound:stop() end
 end
 
--- ============================================================
--- MAIN SCREEN COMPONENTS
--- ============================================================
-local function drawHeader()
-    C("bg_header")
-    rect("fill", 0, 0, SW, HDR_H)
-    C("accent_dim", 0.5)
-    love.graphics.line(0, HDR_H, SW, HDR_H)
+local function openEdit(a, isNew, idx)
+    editAlarm = {
+        hour = a.hour, minute = a.minute, label = a.label,
+        repeat_days = a.repeat_days, enabled = a.enabled,
+        snooze_idx = a.snooze_idx, state = a.state, snooze_until = a.snooze_until,
+        _idx = idx, _isNew = isNew or nil,
+    }
+    editField, editRepDay = 1, 1
+    SC.go("edit")
+end
 
-    -- App name
-    love.graphics.setFont(fBoldBig)
-    C("text_accent")
-    love.graphics.print("ClockMu", 12, (HDR_H - fBoldBig:getHeight()) / 2)
+local function quitDialog()
+    UI.dialog.confirmExit("ClockMu", { body = "Alarms stop when the app closes." })
+end
 
-    -- Current time (small, right side)
+-- ============================================================
+-- MAIN SCREEN
+-- ============================================================
+-- the clock card: time on the left, the date on the right
+local function heroGeom()
+    local x, y, w = content()
+    local sq = L.profile == "square"
+    return x, y, w, sq and 120 or 84, sq and 1.3 or 1
+end
+
+local function drawHero()
+    local x, y, w, h, s = heroGeom()
+    CARD.draw(x, y, w, h, { role = "accent" })
     local now = os.date("*t")
-    local ts  = string.format("%02d:%02d", now.hour, now.min)
-    love.graphics.setFont(fBoldMed)
-    C("text_secondary")
-    local tw = fBoldMed:getWidth(ts)
-    love.graphics.print(ts, SW - tw - 10, (HDR_H - fBoldMed:getHeight()) / 2)
-
-    -- Theme name (centre)
-    love.graphics.setFont(fBoldXs)
-    C("text_disabled")
-    local tn = fskit.theme.name()
-    local tnw = fBoldXs:getWidth(tn)
-    love.graphics.print(tn, SW/2 - tnw/2, (HDR_H - fBoldXs:getHeight()) / 2)
-end
-
-local function drawClock()
-    local now   = os.date("*t")
     local timeS = string.format("%02d:%02d", now.hour, now.min)
-    local dateS = os.date("%A, %d %b %Y")
+    local tx = x + L.BAR + 18
+    love.graphics.push()
+    love.graphics.translate(tx, y + (h - fClock:getHeight() * s) / 2)
+    love.graphics.scale(s, s)
+    love.graphics.setFont(fClock); setC("accent")
+    love.graphics.print(timeS, 0, 0)
+    love.graphics.pop()
 
-    -- Panel
-    C("bg_panel")
-    rect("fill", LIST_X, CLOCK_Y, LIST_W, CLOCK_H, 8)
-    C("accent_dim", 0.3)
-    rect("line", LIST_X, CLOCK_Y, LIST_W, CLOCK_H, 8)
-
-    -- Time
-    love.graphics.setFont(fClock)
-    C("accent_glow")
-    local tw = fClock:getWidth(timeS)
-    love.graphics.print(timeS, SW/2 - tw/2, CLOCK_Y + 6)
-
-    -- Date
-    love.graphics.setFont(fBoldSm)
-    C("text_secondary")
-    local dw = fBoldSm:getWidth(dateS)
-    love.graphics.print(dateS, SW/2 - dw/2, CLOCK_Y + CLOCK_H - fBoldSm:getHeight() - 8)
+    local rx = x + w - 18
+    local day, date = os.date("%A"), os.date("%d %b %Y")
+    local dh = FN.dlg:getHeight() + FN.md:getHeight() + 2
+    local ty = y + (h - dh) / 2
+    love.graphics.setFont(FN.dlg); setC("text_primary")
+    love.graphics.print(day, rx - FN.dlg:getWidth(day), ty)
+    love.graphics.setFont(FN.md); setC("text_secondary")
+    love.graphics.print(date, rx - FN.md:getWidth(date), ty + FN.dlg:getHeight() + 2)
 end
 
-local function drawAlarmList()
-    -- Section label
-    love.graphics.setFont(fBoldXs)
-    C("text_secondary")
-    love.graphics.print("ALARMS  (" .. #alarms .. "/" .. Config.MAX_ALARMS .. ")", LIST_X, LIST_Y - 14)
-
-    if #alarms == 0 then
-        love.graphics.setFont(fMed)
-        C("text_disabled")
-        local msg = "No alarms.  Press Y to add one."
-        local mw = fMed:getWidth(msg)
-        love.graphics.print(msg, SW/2 - mw/2, LIST_Y + 30)
-        return
-    end
-
-    for i, a in ipairs(alarms) do
-        local ry = LIST_Y + (i - 1) * ALARM_ROW_H
-        if ry + ALARM_ROW_H > BTN_BAR_Y - 4 then break end  -- don't overflow
-
-        local isSel     = (i == selIdx)
-        local isRinging = (scene == "ringing" and ringingIdx == i)
-
-        -- Row bg
-        if isRinging then
-            C(ringFlash and "warn" or "bg_row", ringFlash and 0.7 or 1)
-        elseif isSel then
-            C("bg_row_sel", 0.25)
-        else
-            C("bg_row", 0.8)
-        end
-        rect("fill", LIST_X, ry, LIST_W, ALARM_ROW_H - 2, 5)
-
-        -- Selection border
-        if isSel and scene == "main" then
-            C("accent", 0.85)
-            rect("line", LIST_X, ry, LIST_W, ALARM_ROW_H - 2, 5)
-        end
-
-        -- Time (left)
-        love.graphics.setFont(fBoldBig)
-        C(a.enabled and (isRinging and "warn" or "accent_glow") or "text_disabled")
-        love.graphics.print(Alarm.TimeString(a), LIST_X + 8, ry + 6)
-
-        -- Label (top-right area)
-        love.graphics.setFont(fBoldMed)
-        C("text_primary")
-        love.graphics.print(a.label, LIST_X + 108, ry + 5)
-
-        -- Repeat string (below label)
-        love.graphics.setFont(fBoldXs)
-        C("text_secondary")
-        love.graphics.print(Alarm.RepeatString(a), LIST_X + 108, ry + 24)
-
-        -- Snooze (far right, small)
-        local snoozeStr = Config.SNOOZE_OPTIONS[a.snooze_idx] .. "m"
-        local snW = fBoldXs:getWidth(snoozeStr)
-        love.graphics.print(snoozeStr, LIST_X + LIST_W - snW - 26, ry + 24)
-
-        -- Enabled dot (far right)
-        if a.enabled then C("ok") else C("muted") end
-        love.graphics.circle("fill", LIST_X + LIST_W - 12, ry + 12, 6)
-
-        -- Snoozed badge
-        if a.state == "snoozed" then
-            love.graphics.setFont(fBoldXs)
-            C("col_snooze")
-            love.graphics.print("ZZZ", LIST_X + LIST_W - 50, ry + 5)
-        end
-    end
+local ALARM_ROW = 46
+local function alarmOpts()
+    local x, y, w, h = heroGeom()
+    local _, cy, _, ch = content()
+    local ly = y + h + L.GAP
+    return { id = "alarms", rowH = ALARM_ROW, y = ly, h = cy + ch - ly,
+             empty = "No alarms.  Press Y to add one." }
 end
 
--- Main-screen button-hint bar (routes through fskit.ui.footer -> safe-area aware)
+local function drawAlarmRow(a, x, y, w, rowH, focused)
+    local mid = y + rowH / 2
+    -- time
+    love.graphics.setFont(FN.xl)
+    if focused then setC("on_accent", a.enabled and 1 or 0.55)
+    else setC(a.enabled and "accent" or "text_disabled") end
+    love.graphics.print(Alarm.TimeString(a), x, mid - FN.xl:getHeight() / 2)
+    local lx = x + FN.xl:getWidth("00:00") + 18
+
+    -- right side: enabled dot, snooze minutes, ZZZ when snoozed
+    local dotR = 6
+    local dotX = x + w - dotR
+    if a.enabled then
+        if focused then setC("on_accent") else setC("ok") end
+        love.graphics.circle("fill", dotX, mid, dotR)
+    elseif focused then
+        setC("on_accent", 0.7); love.graphics.setLineWidth(2)
+        love.graphics.circle("line", dotX, mid, dotR - 1)
+    else
+        setC("muted"); love.graphics.circle("fill", dotX, mid, dotR)
+    end
+    local snooze = Config.SNOOZE_OPTIONS[a.snooze_idx] .. "m"
+    local sx = dotX - dotR - 14 - FN.xs:getWidth(snooze)
+    love.graphics.setFont(FN.xs)
+    rowC(focused, "text_secondary", focused and 0.85 or 1)
+    love.graphics.print(snooze, sx, mid - FN.xs:getHeight() / 2)
+    local limit = sx - 12
+    if a.state == "snoozed" then
+        local zx = sx - 10 - FN.xs:getWidth("ZZZ")
+        rowC(focused, "discharging")
+        love.graphics.print("ZZZ", zx, mid - FN.xs:getHeight() / 2)
+        limit = zx - 12
+    end
+
+    -- label over repeat
+    local bh = FN.md:getHeight() + FN.xs:getHeight()
+    local top = mid - bh / 2
+    love.graphics.setFont(FN.md); rowC(focused, "text_primary")
+    MARQ(a.label, lx, top, limit - lx, { font = FN.md, active = focused })
+    love.graphics.setFont(FN.xs); rowC(focused, "text_secondary", focused and 0.85 or 1)
+    love.graphics.print(Alarm.RepeatString(a), lx, top + FN.md:getHeight())
+end
+
 local MAIN_HINTS = {
-    { icon = "a",  label = "Edit"   },
-    { icon = "x",  label = "Toggle" },
-    { icon = "y",  label = "Add"    },
-    { icon = "l1", label = "Delete" },
-    { icon = "r1", label = "Theme"  },
-    { icon = "b",  label = "Quit", side = "right" },
+    { icon = "a",      label = "Edit"   },
+    { icon = "x",      label = "Toggle" },
+    { icon = "y",      label = "Add"    },
+    { icon = "start",  label = "Delete" },
+    { icon = "select", label = "Theme"  },
+    { icon = "b",      label = "Quit", side = "right" },
 }
 
-local function drawBottomBar()
-    fskit.ui.footer.draw(MAIN_HINTS, { h = BTN_BAR_H, font = fBoldXs })
+local function clampSel()
+    if selIdx > #alarms then selIdx = math.max(1, #alarms) end
 end
 
 -- ============================================================
--- MODAL SHELL  (draws dimmed backdrop + rounded panel)
+-- EDIT SCREEN
 -- ============================================================
-local function modalShell(x, y, w, h, title)
-    -- Backdrop (oversized so the rise-in translate never exposes an edge)
-    love.graphics.setColor(0, 0, 0, modalDim())
-    rect("fill", -16, -16, SW + 32, SH + 32)
+local EDIT_FIELDS = {"Hour", "Minute", "Label", "Repeat days", "Snooze", "Enabled"}
+local EDIT_ROW = 52
+local LABEL_W = 150
 
-    -- Panel body
-    C("bg_modal")
-    rect("fill", x, y, w, h, 8)
-
-    -- Header strip
-    C("bg_modal_hdr")
-    rect("fill", x, y, w, 34, 8)
-    rect("fill", x, y + 20, w, 14)  -- square bottom of header
-
-    -- Title
-    love.graphics.setFont(fBoldMed)
-    C("text_accent")
-    love.graphics.print(title, x + 12, y + 7)
-
-    -- Separator line
-    C("accent_dim", 0.3)
-    love.graphics.line(x, y + 34, x + w, y + 34)
+local function triangle(cx, cy, dir, s)
+    love.graphics.polygon("fill", cx + dir * s, cy, cx - dir * s, cy - s, cx - dir * s, cy + s)
 end
 
--- ============================================================
--- EDIT MODAL
--- ============================================================
-local EDIT_FIELDS = {"Hour", "Minute", "Label", "Repeat Days", "Snooze", "Enabled"}
+-- "<  07  >" : the value with arrows either side
+local function stepper(text, font, x, mid, focused)
+    local tw = font:getWidth(text)
+    rowC(focused, "text_secondary", focused and 0.8 or 0.7)
+    triangle(x + 5, mid, -1, 6)
+    love.graphics.setFont(font); rowC(focused, "text_primary")
+    love.graphics.print(text, x + 22, mid - font:getHeight() / 2)
+    rowC(focused, "text_secondary", focused and 0.8 or 0.7)
+    triangle(x + 22 + tw + 17, mid, 1, 6)
+    return x + 22 + tw + 34
+end
 
-local function drawEditModal()
-    local mx, my = 50, 40
-    local mw, mh = SW - 100, SH - 80
-
-    modalShell(mx, my, mw, mh, "Edit Alarm")
-
-    -- Preview time top-right of header
-    love.graphics.setFont(fBoldBig)
-    C("accent_glow")
-    local pt = string.format("%02d:%02d", editAlarm.hour, editAlarm.minute)
-    local ptw = fBoldBig:getWidth(pt)
-    love.graphics.print(pt, mx + mw - ptw - 10, my + 4)
-
-    local fy   = my + 38
-    local rowH = 42
-    local valX = mx + 130
-
-    for fi, fname in ipairs(EDIT_FIELDS) do
-        local isAct = (fi == editField)
-        local fbot  = fy + rowH
-
-        if isAct then
-            C("bg_row_sel", 0.2)
-            rect("fill", mx + 4, fy, mw - 8, rowH - 2, 4)
-            C("accent", 0.7)
-            rect("line", mx + 4, fy, mw - 8, rowH - 2, 4)
-        end
-
-        -- Field label
-        love.graphics.setFont(fBoldXs)
-        C(isAct and "text_accent" or "text_secondary")
-        love.graphics.print(fname, mx + 10, fy + 4)
-
-        -- Value
-        if fi == 1 then  -- Hour
-            love.graphics.setFont(fBoldBig)
-            C("text_primary")
-            love.graphics.print(string.format("%02d", editAlarm.hour), valX, fy + 8)
-            if isAct then
-                love.graphics.setFont(fBoldXs)
-                C("text_secondary")
-                love.graphics.print("< > adjust   L1/R1 +/-1h", valX + 60, fy + 14)
-            end
-
-        elseif fi == 2 then  -- Minute
-            love.graphics.setFont(fBoldBig)
-            C("text_primary")
-            love.graphics.print(string.format("%02d", editAlarm.minute), valX, fy + 8)
-            if isAct then
-                love.graphics.setFont(fBoldXs)
-                C("text_secondary")
-                love.graphics.print("< > +/-1m   L1/R1 +/-10m", valX + 60, fy + 14)
-            end
-
-        elseif fi == 3 then  -- Label
-            love.graphics.setFont(fBoldMed)
-            C("text_primary")
-            love.graphics.print(editAlarm.label, valX, fy + 10)
-            if isAct then
-                love.graphics.setFont(fBoldXs)
-                C("text_secondary")
-                love.graphics.print("A = pick label", valX + fBoldMed:getWidth(editAlarm.label) + 8, fy + 14)
-            end
-
-        elseif fi == 4 then  -- Repeat days
-            love.graphics.setFont(fBoldXs)
-            local dx = valX
-            for di, dlbl in ipairs(Config.DAY_LABELS) do
-                local on     = bit.band(editAlarm.repeat_days, bit.lshift(1, di-1)) ~= 0
-                local isCur  = isAct and (di == editRepDay)
-                local bw, bh = 30, 20
-
-                if isCur then
-                    C("accent")
-                    rect("fill", dx - 1, fy + 8, bw, bh, 3)
-                    C("bg_main")
-                elseif on then
-                    C("accent_dim", 0.55)
-                    rect("fill", dx - 1, fy + 8, bw, bh, 3)
-                    C("accent_glow")
-                else
-                    C("text_disabled")
-                end
-                love.graphics.print(dlbl, dx + 2, fy + 10)
-                dx = dx + bw + 3
-            end
-            -- "Once" badge
-            C(editAlarm.repeat_days == 0 and "accent_glow" or "text_disabled")
-            love.graphics.print(editAlarm.repeat_days == 0 and "[Once]" or "Once", dx + 2, fy + 10)
-
-        elseif fi == 5 then  -- Snooze
-            love.graphics.setFont(fBoldMed)
-            C("text_primary")
-            love.graphics.print(Config.SNOOZE_OPTIONS[editAlarm.snooze_idx] .. " min", valX, fy + 10)
-            if isAct then
-                love.graphics.setFont(fBoldXs)
-                C("text_secondary")
-                love.graphics.print("< > to change", valX + 80, fy + 14)
-            end
-
-        elseif fi == 6 then  -- Enabled
-            love.graphics.setFont(fBoldMed)
-            C(editAlarm.enabled and "ok" or "muted")
-            love.graphics.print(editAlarm.enabled and "ON" or "OFF", valX, fy + 10)
-        end
-
-        fy = fy + rowH
+local function drawEditRow(fi, x, y, w, rowH, focused)
+    local mid = y + rowH / 2
+    love.graphics.setFont(FN.sm); rowC(focused, "text_secondary", focused and 0.85 or 1)
+    love.graphics.print(EDIT_FIELDS[fi]:upper(), x, mid - FN.sm:getHeight() / 2)
+    local vx = x + LABEL_W
+    local function hint(text)
+        if not focused then return end
+        love.graphics.setFont(FN.xs); setC("on_accent", 0.8)
+        love.graphics.print(text, x + w - FN.xs:getWidth(text), mid - FN.xs:getHeight() / 2)
     end
 
-    -- Bottom button bar inside modal
-    local bbY = my + mh - 34
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 34, 8)
-    rect("fill", mx, bbY - 8, mw, 16)
-
-    love.graphics.setFont(fBoldXs)
-    local bx = mx + 8
-    local function mhint(icon, label)
-        C("text_primary"); love.graphics.draw(icon, bx, bbY + 7)
-        C("text_secondary"); love.graphics.print(label, bx + 26, bbY + 9)
-        bx = bx + 22 + fBoldXs:getWidth(label) + 12
+    if fi == 1 then
+        stepper(string.format("%02d", editAlarm.hour), FN.xl, vx, mid, focused)
+        hint("L1 / R1   +/- 1 h")
+    elseif fi == 2 then
+        stepper(string.format("%02d", editAlarm.minute), FN.xl, vx, mid, focused)
+        hint("L1 / R1   +/- 10 min")
+    elseif fi == 3 then
+        love.graphics.setFont(FN.md); rowC(focused, "text_primary")
+        MARQ(editAlarm.label, vx, mid - FN.md:getHeight() / 2, w - LABEL_W - 90, { font = FN.md, active = focused })
+        hint("A   change")
+    elseif fi == 4 then
+        local cw, ch, gap = 36, 26, 4
+        love.graphics.setFont(FN.xs)
+        for di, dlbl in ipairs(Config.DAY_LABELS) do
+            local cx = vx + (di - 1) * (cw + gap)
+            local on = bit.band(editAlarm.repeat_days, bit.lshift(1, di - 1)) ~= 0
+            local cy = mid - ch / 2 - 2
+            local tw = FN.xs:getWidth(dlbl)
+            if on then
+                if focused then setC("on_accent") else setC("accent") end
+                rect("fill", cx, cy, cw, ch, 4)
+                if focused then setC("accent") else setC("on_accent") end
+            else
+                rowC(focused, "text_disabled", focused and 0.7 or 1)
+                love.graphics.setLineWidth(1.5); rect("line", cx, cy, cw, ch, 4)
+            end
+            love.graphics.print(dlbl, cx + (cw - tw) / 2, cy + (ch - FN.xs:getHeight()) / 2)
+            if focused and di == editRepDay then          -- the cursor
+                setC("on_accent"); rect("fill", cx, cy + ch + 3, cw, 3, 1)
+            end
+        end
+        local once = editAlarm.repeat_days == 0
+        local ox = vx + 7 * (cw + gap) + 8
+        love.graphics.setFont(FN.sm)
+        if once then rowC(focused, "text_primary") else rowC(focused, "text_disabled", focused and 0.7 or 1) end
+        love.graphics.print(once and "Once" or "", ox, mid - FN.sm:getHeight() / 2 - 2)
+    elseif fi == 5 then
+        stepper(Config.SNOOZE_OPTIONS[editAlarm.snooze_idx] .. " min", FN.md, vx, mid, focused)
+    elseif fi == 6 then
+        love.graphics.setFont(FN.lg)
+        local on = editAlarm.enabled
+        if focused then setC("on_accent") else setC(on and "ok" or "muted") end
+        love.graphics.print(on and "ON" or "OFF", vx, mid - FN.lg:getHeight() / 2)
+        hint("< >   toggle")
     end
-    -- A behaviour depends on field
+end
+
+local function editOpts() return { id = "edit", rowH = EDIT_ROW } end
+
+local function editFooter()
+    local items
     if editField == 4 then
-        mhint(ic.A, "Toggle day")
-        mhint(ic.X, "Clear all")
+        items = { { icon = "a", label = "Toggle day" }, { icon = "x", label = "Clear all" },
+                  { icon = "y", label = "Preset time" }, { icon = "start", label = "Save" } }
     elseif editField == 3 then
-        mhint(ic.A, "Pick label")
+        items = { { icon = "a", label = "Change label" }, { icon = "y", label = "Preset time" },
+                  { icon = "start", label = "Save" } }
     else
-        mhint(ic.A, "Save")
+        items = { { icon = "a", label = "Save" }, { icon = "y", label = "Preset time" } }
     end
-    mhint(ic.Y, "Preset time")
-    -- B right-aligned
-    local blabel = "Cancel"
-    local bw2 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw2 - 26 - 10, bbY + 7)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw2 - 8, bbY + 9)
+    items[#items + 1] = { icon = "b", label = "Cancel", side = "right" }
+    foot(items)
 end
 
--- ============================================================
--- PRESET TIME PICKER
--- ============================================================
-local function drawPresetTime()
-    local mx, my = 120, 60
-    local mw, mh = 400, 330
+local function openPresetPicker()
+    local target = editAlarm.hour * 60 + editAlarm.minute
+    local best, bestDist = 1, math.huge
+    for pi, p in ipairs(presetList) do
+        local d = math.abs(p.hour * 60 + p.minute - target)
+        if d < bestDist then bestDist = d; best = pi end
+    end
+    presetIdx = best
+    SC.go("preset_time")
+end
 
-    modalShell(mx, my, mw, mh, "Pick a Time")
+local function wrapStep(v, d, lo, hi) v = v + d; if v < lo then return hi elseif v > hi then return lo end; return v end
 
-    local totalPages = math.ceil(#presetList / PRESET_PAGE)
-    local currPage   = math.ceil(presetIdx / PRESET_PAGE)
-    local idxStart   = (currPage - 1) * PRESET_PAGE + 1
-    local idxEnd     = math.min(idxStart + PRESET_PAGE - 1, #presetList)
-
-    -- Page indicator in header
-    love.graphics.setFont(fBoldXs)
-    C("text_secondary")
-    local pgStr = currPage .. "/" .. totalPages
-    love.graphics.print(pgStr, mx + mw - fBoldXs:getWidth(pgStr) - 10, my + 10)
-
-    local rowH = 28
-    local ry   = my + 38
-
-    for idx = idxStart, idxEnd do
-        local p   = presetList[idx]
-        local isSel = (idx == presetIdx)
-
-        if isSel then
-            C("bg_row_sel", 0.3)
-            rect("fill", mx + 4, ry, mw - 8, rowH - 2, 4)
-            C("accent", 0.8)
-            rect("line", mx + 4, ry, mw - 8, rowH - 2, 4)
+local function editInput(key)
+    if key == "up" then editField = wrapStep(editField, -1, 1, #EDIT_FIELDS)
+    elseif key == "down" then editField = wrapStep(editField, 1, 1, #EDIT_FIELDS)
+    elseif key == "right" or key == "left" then
+        local d = key == "right" and 1 or -1
+        if editField == 1 then editAlarm.hour = (editAlarm.hour + d) % 24
+        elseif editField == 2 then editAlarm.minute = (editAlarm.minute + d) % 60
+        elseif editField == 4 then editRepDay = wrapStep(editRepDay, d, 1, 7)
+        elseif editField == 5 then editAlarm.snooze_idx = wrapStep(editAlarm.snooze_idx, d, 1, #Config.SNOOZE_OPTIONS)
+        elseif editField == 6 then editAlarm.enabled = not editAlarm.enabled
         end
-
-        love.graphics.setFont(isSel and fBoldBig or fBoldMed)
-        C(isSel and "accent_glow" or "text_primary")
-        love.graphics.print(string.format("%02d:%02d", p.hour, p.minute), mx + 14, ry + 3)
-        ry = ry + rowH
-    end
-
-    -- Nav hints
-    local bbY = my + mh - 32
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 32, 8)
-    rect("fill", mx, bbY - 8, mw, 16)
-
-    love.graphics.setFont(fBoldXs)
-    local bx2 = mx + 8
-    local function mhint2(icon, label)
-        C("text_primary"); love.graphics.draw(icon, bx2, bbY + 6)
-        C("text_secondary"); love.graphics.print(label, bx2 + 26
-		, bbY + 8)
-        bx2 = bx2 + 22 + fBoldXs:getWidth(label) + 12
-    end
-    mhint2(ic.A, "Select")
-    mhint2(ic.L1, "Prev page")
-    mhint2(ic.R1, "Next page")
-    local blabel = "Cancel"
-    local bw3 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw3 - 22 - 10, bbY + 6)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw3 - 8, bbY + 8)
-end
-
--- ============================================================
--- LABEL PICKER
--- ============================================================
-local function drawLabelPicker()
-    local mx, my = 80, 50
-    local mw, mh = SW - 160, SH - 100
-
-    modalShell(mx, my, mw, mh, "Choose Label")
-
-    local cols   = 2
-    local itemH  = 30
-    local colW   = (mw - 16) / cols
-    local startY = my + 40
-    local px     = mx + 8
-
-    for idx, lbl in ipairs(Config.PRESET_LABELS) do
-        local col = (idx - 1) % cols
-        local row = math.floor((idx - 1) / cols)
-        local rx2 = px + col * colW
-        local ry2 = startY + row * itemH
-        local isSel = (idx == labelSelIdx)
-
-        if isSel then
-            C("bg_row_sel", 0.3)
-            rect("fill", rx2 - 2, ry2, colW - 4, itemH - 2, 4)
-            C("accent", 0.8)
-            rect("line", rx2 - 2, ry2, colW - 4, itemH - 2, 4)
+    elseif key == "l1" or key == "r1" then
+        local d = key == "r1" and 1 or -1
+        if editField == 1 then editAlarm.hour = (editAlarm.hour + d) % 24
+        elseif editField == 2 then editAlarm.minute = (editAlarm.minute + d * 10) % 60
         end
-
-        love.graphics.setFont(isSel and fBoldMed or fMed)
-        C(isSel and "accent_glow" or "text_primary")
-        -- "Custom..." gets a special colour
-        if lbl == "Custom..." then C(isSel and "accent_glow" or "text_accent") end
-        love.graphics.print(lbl, rx2 + 4, ry2 + 6)
-    end
-
-    -- Bottom hints
-    local bbY = my + mh - 32
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 32, 8)
-    rect("fill", mx, bbY - 8, mw, 16)
-
-    love.graphics.setFont(fBoldXs)
-    local bx2 = mx + 8
-    local function mhint(icon, label)
-        C("text_primary"); love.graphics.draw(icon, bx2, bbY + 6)
-        C("text_secondary"); love.graphics.print(label, bx2 + 26, bbY + 8)
-        bx2 = bx2 + 22 + fBoldXs:getWidth(label) + 12
-    end
-    mhint(ic.A, "Select")
-    local blabel = "Cancel"
-    local bw4 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw4 - 26 - 10, bbY + 6)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw4 - 8, bbY + 8)
-end
-
--- ============================================================
--- ON-SCREEN KEYBOARD
--- ============================================================
-local function drawKeyboard()
-    local mx, my = 20, 60
-    local mw, mh = SW - 40, SH - 80
-
-    modalShell(mx, my, mw, mh, "Enter Label")
-
-    -- Text display
-    local dispY  = my + 40
-    local textStr = kbText .. "|"
-    love.graphics.setFont(fBoldBig)
-    C("accent_glow")
-    love.graphics.print(textStr, mx + 10, dispY)
-
-    love.graphics.setFont(fBoldXs)
-    C("text_secondary")
-    love.graphics.print(#kbText .. "/" .. kbMaxLen, mx + mw - 50, dispY + 6)
-
-    -- Separator
-    C("accent_dim", 0.3)
-    love.graphics.line(mx + 4, dispY + 32, mx + mw - 4, dispY + 32)
-
-    -- Keys
-    local kbStartY = dispY + 38
-    local rows     = Config.KB_ROWS
-
-    for ri, row in ipairs(rows) do
-        local isLastRow = (ri == #rows)
-        local keyH = 28
-        local keyW
-        local totalKeys  = #row
-        local totalWidth = mw - 16
-
-        if isLastRow then
-            -- Special wide keys row
-            local widths = {SPACE=120, BACK=80, DONE=80}
-            local usedW  = 0
-            for _, k in ipairs(row) do usedW = usedW + (widths[k] or 60) + 4 end
-            local startX = mx + 8 + (totalWidth - usedW) / 2
-
-            for ci, k in ipairs(row) do
-                local kw = widths[k] or 60
-                local kx = startX
-                for pi = 1, ci - 1 do
-                    startX = startX + (widths[row[pi]] or 60) + 4
-                end
-                kx = startX
-                startX = startX + kw + 4
-
-                local isSel = (ri == kbRow and ci == kbCol)
-                if isSel then C("accent") else C("bg_row", 0.8) end
-                rect("fill", kx, kbStartY + (ri-1)*(keyH+4), kw, keyH, 4)
-                if isSel then
-                    C("bg_main")
-                else
-                    C("text_primary")
-                end
-                love.graphics.setFont(fBoldXs)
-                local kLabel = k == "SPACE" and "Space" or k == "BACK" and "Del" or "Enter"
-                local klw = fBoldXs:getWidth(kLabel)
-                love.graphics.print(kLabel, kx + kw/2 - klw/2, kbStartY + (ri-1)*(keyH+4) + 8)
-            end
+    elseif key == "a" then
+        if editField == 3 then
+            labelSelIdx = 1
+            for i, lbl in ipairs(Config.PRESET_LABELS) do if lbl == editAlarm.label then labelSelIdx = i end end
+            SC.go("label_pick")
+        elseif editField == 4 then
+            editAlarm.repeat_days = bit.bxor(editAlarm.repeat_days, bit.lshift(1, editRepDay - 1))
         else
-            keyW = math.floor((totalWidth - (totalKeys-1)*4) / totalKeys)
-            for ci, k in ipairs(row) do
-                local kx  = mx + 8 + (ci-1)*(keyW+4)
-                local ky  = kbStartY + (ri-1)*(keyH+4)
-                local isSel = (ri == kbRow and ci == kbCol)
+            saveEditAlarm()
+        end
+    elseif key == "start" then
+        saveEditAlarm()                       -- save from anywhere in the edit screen
+    elseif key == "x" and editField == 4 then
+        editAlarm.repeat_days = 0
+    elseif key == "y" then
+        openPresetPicker()
+    elseif key == "b" then
+        SC.go("main")
+    end
+end
 
-                if isSel then C("accent") else C("bg_row", 0.8) end
-                rect("fill", kx, ky, keyW, keyH, 3)
-                if isSel then C("bg_main") else C("text_primary") end
-                love.graphics.setFont(fBoldSm)
-                -- ★★★ FIX: Show uppercase if Caps Lock is ON ★★★
-                local displayKey = kbCapsLock and k:upper() or k
-                local klw = fBoldSm:getWidth(displayKey)
-                love.graphics.print(displayKey, kx + keyW/2 - klw/2, ky + 6)
+-- ============================================================
+-- PICKERS
+-- ============================================================
+local function presetOpts() return { id = "preset", rowH = 40 } end
+local function labelOpts()  return { id = "labels", rowH = 40 } end
+
+-- ============================================================
+-- SCENES
+-- ============================================================
+local SCENES = {}
+
+SCENES.main = {
+    enter = function() LIST.reset("alarms"); clampSel() end,
+    draw = function()
+        head("ClockMu", #alarms .. "/" .. Config.MAX_ALARMS .. " alarms")
+        drawHero()
+        local o = alarmOpts()
+        o.draw = drawAlarmRow
+        LIST(alarms, selIdx, o)
+        foot(MAIN_HINTS)
+    end,
+    input = function(key)
+        local n = LIST.nav(selIdx, key, #alarms, LIST.pageSize(alarmOpts()))
+        if n then selIdx = n
+        elseif key == "a" and #alarms > 0 then openEdit(alarms[selIdx], false, selIdx)
+        elseif key == "x" and #alarms > 0 then
+            alarms[selIdx].enabled = not alarms[selIdx].enabled
+            Alarm.SaveAll(alarms)
+        elseif key == "y" then
+            if #alarms < Config.MAX_ALARMS then
+                local now = os.date("*t")
+                openEdit(Alarm.New(now.hour, now.min, "Alarm " .. (#alarms + 1), 0, true), true)
+            else
+                UI.dialog.open{
+                    title = "Alarm limit", body = "ClockMu keeps " .. Config.MAX_ALARMS
+                        .. " alarms. Delete one to add another.",
+                    confirm = "OK", cancel = "Close", tone = "accent",
+                }
             end
+        elseif key == "start" and #alarms > 0 then
+            local a = alarms[selIdx]
+            UI.dialog.open{
+                title = "Delete alarm?", body = Alarm.TimeString(a) .. "   " .. a.label,
+                confirm = "Delete", cancel = "Keep", tone = "danger",
+                onConfirm = function()
+                    table.remove(alarms, selIdx)
+                    clampSel()
+                    Alarm.SaveAll(alarms)
+                end,
+            }
+        elseif key == "select" then SC.go("theme")
+        elseif key == "b" then quitDialog() end
+    end,
+}
+
+SCENES.edit = {
+    enter = function() LIST.reset("edit") end,
+    draw = function()
+        head(editAlarm._isNew and "New alarm" or "Edit alarm",
+             string.format("%02d:%02d", editAlarm.hour, editAlarm.minute))
+        local o = editOpts()
+        o.draw = function(fi, x, y, w, rowH, focused) drawEditRow(fi, x, y, w, rowH, focused) end
+        local rows = {}
+        for i = 1, #EDIT_FIELDS do rows[i] = i end
+        LIST(rows, editField, o)
+        editFooter()
+    end,
+    input = editInput,
+}
+
+SCENES.preset_time = {
+    enter = function() LIST.reset("preset") end,
+    draw = function()
+        head("Pick a time", presetIdx .. "/" .. #presetList)
+        local o = presetOpts()
+        o.draw = function(p, x, y, w, rowH, focused)
+            love.graphics.setFont(FN.xl); rowC(focused, "text_primary")
+            love.graphics.print(string.format("%02d:%02d", p.hour, p.minute), x, y + (rowH - FN.xl:getHeight()) / 2)
         end
-    end
+        LIST(presetList, presetIdx, o)
+        foot({ { icon = "a", label = "Select" }, { icon = "l1", label = "Page up" },
+               { icon = "r1", label = "Page down" }, { icon = "b", label = "Cancel", side = "right" } })
+    end,
+    input = function(key)
+        local n = LIST.nav(presetIdx, key, #presetList, LIST.pageSize(presetOpts()))
+        if n then presetIdx = n
+        elseif key == "a" then
+            local p = presetList[presetIdx]
+            editAlarm.hour, editAlarm.minute = p.hour, p.minute
+            SC.go("edit")
+        elseif key == "b" then SC.go("edit") end
+    end,
+}
 
-    -- Bottom hints
-    local bbY = my + mh - 30
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 30, 8)
-    rect("fill", mx, bbY - 6, mw, 14)
-    love.graphics.setFont(fBoldXs)
-    local bx2 = mx + 8
-    local function kh(icon, label)
-        C("text_primary"); love.graphics.draw(icon, bx2, bbY + 5)
-        C("text_secondary"); love.graphics.print(label, bx2 + 26, bbY + 7)
-        bx2 = bx2 + 22 + fBoldXs:getWidth(label) + 10
-    end
-    kh(ic.A, "Type")
-    kh(ic.X, "Del")
-    local capsLabel = kbCapsLock and "Caps ON" or "Caps OFF"
-    kh(ic.Y, capsLabel)
-    kh(ic.R1, "Enter")
-
-    local blabel = "Cancel"
-    local bw5 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw5 - 26 - 8, bbY + 5)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw5 - 6, bbY + 7)
-end
-
--- ============================================================
--- THEME PICKER
--- ============================================================
-local function drawThemePicker()
-    local mx, my = 60, 50
-    local mw, mh = SW - 120, SH - 100
-
-    modalShell(mx, my, mw, mh, "Choose Theme")
-
-    local rowH   = 34
-    local startY = my + 40
-
-    for ti = 1, fskit.theme.count() do
-        local pal   = fskit.theme.palette(ti)
-        local ry2   = startY + (ti - 1) * rowH
-        local isSel = (ti == themeSelIdx)
-        local isCur = (ti == fskit.theme.index())
-
-        if isSel then
-            C("bg_row_sel", 0.3)
-            rect("fill", mx + 4, ry2, mw - 8, rowH - 2, 4)
-            C("accent", 0.8)
-            rect("line", mx + 4, ry2, mw - 8, rowH - 2, 4)
+SCENES.label_pick = {
+    enter = function() LIST.reset("labels") end,
+    draw = function()
+        head("Choose label")
+        local o = labelOpts()
+        o.draw = function(lbl, x, y, w, rowH, focused)
+            love.graphics.setFont(FN.md)
+            if lbl == "Custom..." then rowC(focused, "accent") else rowC(focused, "text_primary") end
+            love.graphics.print(lbl, x, y + (rowH - FN.md:getHeight()) / 2)
         end
+        LIST(Config.PRESET_LABELS, labelSelIdx, o)
+        foot({ { icon = "a", label = "Select" }, { icon = "l1", label = "Page up" },
+               { icon = "r1", label = "Page down" }, { icon = "b", label = "Cancel", side = "right" } })
+    end,
+    input = function(key)
+        local n = LIST.nav(labelSelIdx, key, #Config.PRESET_LABELS, LIST.pageSize(labelOpts()))
+        if n then labelSelIdx = n
+        elseif key == "a" then
+            local chosen = Config.PRESET_LABELS[labelSelIdx]
+            if chosen == "Custom..." then
+                -- the shared keyboard (letters + a symbols page); empty text keeps the old label
+                UI.osk.open{
+                    title = "Alarm label", text = editAlarm.label, max = 20,
+                    onDone = function(text)
+                        if text ~= "" then editAlarm.label = text end
+                        SC.go("edit")
+                    end,
+                    onCancel = function() SC.go("edit") end,
+                }
+            else
+                editAlarm.label = chosen
+                SC.go("edit")
+            end
+        elseif key == "b" then SC.go("edit") end
+    end,
+}
 
-        -- Colour swatch
-        local sw = pal.accent
-        love.graphics.setColor(sw[1], sw[2], sw[3], 1)
-        rect("fill", mx + 10, ry2 + 7, 18, 18, 3)
-        love.graphics.setColor(1,1,1,0.4)
-        rect("line", mx + 10, ry2 + 7, 18, 18, 3)
+SCENES.theme = {
+    enter = function() themePicker = UI.themepicker.new() end,
+    draw = function() themePicker:draw() end,
+    input = function(key)
+        if themePicker:input(key) then SC.go("main") end
+    end,
+}
 
-        -- Name
-        love.graphics.setFont(isSel and fBoldMed or fMed)
-        C(isSel and "accent_glow" or "text_primary")
-        love.graphics.print(pal.name, mx + 36, ry2 + 8)
+-- the alarm: a flashing header, the time big, A snoozes, B dismisses
+SCENES.ringing = {
+    enter = function() startRinging() end,
+    update = function(dt)
+        ringAge = ringAge + dt
+        ringTimer = ringTimer + dt
+        if ringTimer >= 0.5 then ringTimer = 0; ringFlash = not ringFlash end
+    end,
+    draw = function()
+        local a = alarms[ringingIdx]
+        if not a then return end
+        local role = (ringFlash or not fskit.motion.enabled) and "warn" or "accent"
+        -- header
+        setC(role); rect("fill", 0, 0, L.SW, L.HDR_H)
+        local on = UI.util.readable(role)
+        love.graphics.setFont(FN.xl); setC(on)
+        love.graphics.print("ALARM", math.max(L.PAD, fskit.screen.SAFE), (L.HDR_H - FN.xl:getHeight()) / 2)
 
-        -- Active badge
-        if isCur then
-            love.graphics.setFont(fBoldXs)
-            C("ok")
-            love.graphics.print("[active]", mx + mw - 70, ry2 + 10)
+        local x, y, w, h = content()
+        CARD.draw(x, y, w, h, { role = "warn" })
+        local cx = x + w / 2 + L.BAR / 2
+        local ts = Alarm.TimeString(a)
+        local tf = fRing
+        local block = tf:getHeight() + FN.dlg:getHeight() + FN.sm:getHeight() + 18
+        local ty = y + (h - block) / 2
+        love.graphics.setFont(tf); setC("accent")
+        love.graphics.print(ts, cx - tf:getWidth(ts) / 2, ty)
+        ty = ty + tf:getHeight() + 8
+        love.graphics.setFont(FN.dlg); setC("text_primary")
+        MARQ(a.label, x + 40, ty, w - 80, { font = FN.dlg, align = "center" })
+        ty = ty + FN.dlg:getHeight() + 10
+        love.graphics.setFont(FN.sm); setC("text_secondary")
+        local sub = Alarm.RepeatString(a)
+        love.graphics.print(sub, cx - FN.sm:getWidth(sub) / 2, ty)
+
+        foot({ { icon = "a", label = "Snooze (" .. Config.SNOOZE_OPTIONS[a.snooze_idx] .. " min)" },
+               { icon = "b", label = "Dismiss", side = "right" } })
+    end,
+    input = function(key)
+        local a = alarms[ringingIdx]
+        if not a or ringAge < RING_GUARD then return end
+        if key == "b" then
+            stopRinging()
+            a.state = "idle"
+            if a.repeat_days == 0 then a.enabled = false end
+            Alarm.SaveAll(alarms)
+            SC.go("main", nil, true)
+        elseif key == "a" then
+            stopRinging()
+            a.state = "snoozed"
+            a.snooze_until = os.time() + Config.SNOOZE_OPTIONS[a.snooze_idx] * 60
+            Alarm.SaveAll(alarms)
+            SC.go("main", nil, true)
         end
-    end
-
-    -- Bottom hints
-    local bbY = my + mh - 32
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 32, 8)
-    rect("fill", mx, bbY - 8, mw, 16)
-
-    love.graphics.setFont(fBoldXs)
-    local bx2 = mx + 8
-    local function th(icon, label)
-        C("text_primary"); love.graphics.draw(icon, bx2, bbY + 6)
-        C("text_secondary"); love.graphics.print(label, bx2 + 26, bbY + 8)
-        bx2 = bx2 + 22 + fBoldXs:getWidth(label) + 12
-    end
-    th(ic.A, "Apply theme")
-    local blabel = "Cancel"
-    local bw6 = fBoldXs:getWidth(blabel)
-    C("text_primary"); love.graphics.draw(ic.B, mx + mw - bw6 - 26 - 10, bbY + 6)
-    C("text_secondary"); love.graphics.print(blabel, mx + mw - bw6 - 8, bbY + 8)
-end
-
--- ============================================================
--- RINGING OVERLAY
--- ============================================================
-local function drawRinging()
-    local a = alarms[ringingIdx]
-    if not a then return end
-
-    love.graphics.setColor(0, 0, 0, ringFlash and 0.5 or 0.75)
-    rect("fill", 0, 0, SW, SH)
-
-    local mx, my = 80, 100
-    local mw, mh = SW - 160, 250
-
-    C("bg_modal")
-    rect("fill", mx, my, mw, mh, 10)
-    C("warn", 0.9)
-    rect("line", mx, my, mw, mh, 10)
-
-    -- Header strip
-    C("warn", ringFlash and 0.8 or 0.5)
-    rect("fill", mx, my, mw, 38, 10)
-    rect("fill", mx, my + 24, mw, 14)
-
-    love.graphics.setFont(fBoldMed)
-    C("text_primary")
-    love.graphics.print("!! ALARM !!", mx + mw/2 - fBoldMed:getWidth("!! ALARM !!")/2, my + 8)
-
-    -- Time
-    love.graphics.setFont(fClock)
-    C("accent_glow")
-    local ts = Alarm.TimeString(a)
-    love.graphics.print(ts, mx + mw/2 - fClock:getWidth(ts)/2, my + 46)
-
-    -- Label
-    love.graphics.setFont(fBoldMed)
-    C("text_primary")
-    love.graphics.print(a.label, mx + mw/2 - fBoldMed:getWidth(a.label)/2, my + 130)
-
-    -- Buttons
-    local bbY = my + mh - 44
-    C("bg_modal_hdr")
-    rect("fill", mx, bbY, mw, 44, 10)
-    rect("fill", mx, bbY - 10, mw, 20)
-
-    love.graphics.setFont(fBoldSm)
-    -- Snooze left
-    C("col_snooze", 0.9); love.graphics.draw(ic.A, mx + 10, bbY + 12)
-    C("text_primary")
-    love.graphics.print("Snooze (" .. Config.SNOOZE_OPTIONS[a.snooze_idx] .. "m)", mx + 34, bbY + 14)
-
-    -- Dismiss right
-    local dlabel = "Dismiss"
-    local dlw    = fBoldSm:getWidth(dlabel)
-    C("warn", 0.9); love.graphics.draw(ic.B, mx + mw - dlw - 30, bbY + 12)
-    C("text_primary"); love.graphics.print(dlabel, mx + mw - dlw - 6, bbY + 14)
-end
-
--- ============================================================
--- QUIT CONFIRM  (shared fskit.ui.dialog -- identical across the 4 apps)
--- ============================================================
-local function openQuitDialog()
-    fskit.ui.dialog.open{
-        title = "Quit ClockMu?", body = "Alarms stop when the app closes.",
-        confirm = "Quit", cancel = "Stay", tone = "accent",
-        onConfirm = function() love.event.quit() end,
-    }
-end
+    end,
+}
 
 -- ============================================================
 -- LOVE CALLBACKS
@@ -836,361 +560,64 @@ end
 function love.load()
     fskit.load()
 
-    -- NOTE: fskit's big/med are back-compat aliases for huge/xl (36/22) — far
-    -- larger than ClockMu's dense modals were laid out for. Use the lg/md rungs
-    -- (18/14), same choice as BatteryMu.
-    fClock   = fskit.font.clock
-    fBoldBig = fskit.font.lg
-    fBoldMed = fskit.font.md
-    fBoldSm  = fskit.font.sm
-    fBoldXs  = fskit.font.xs
-    fBig     = fskit.font.body_lg
-    fMed     = fskit.font.body
-    fSm      = fskit.font.body_sm
-
-    ic.A     = fskit.glyph.get("a")
-    ic.B     = fskit.glyph.get("b")
-    ic.X     = fskit.glyph.get("x")
-    ic.Y     = fskit.glyph.get("y")
-    ic.L1    = fskit.glyph.get("l1")
-    ic.R1    = fskit.glyph.get("r1")
-    ic.start = fskit.glyph.get("start")
+    fClock = FN.clock
+    -- the big readout on the alarm screen, sized to the screen
+    local size = (L.profile == "square") and 150 or 104
+    local ok, big = pcall(love.graphics.newFont, "fskit/assets/font/Bold.ttf", size)
+    fRing = ok and big or FN.clock
+    if ok then big:setFilter("linear", "linear") end
 
     fskit.theme.bind{ load = Config.LoadTheme, save = Config.SaveTheme }
-    -- route input: shared modal overlay (exit dialog) first, else the app
-    fskit.input.hook(function(k)
-        if fskit.scene.overlay() then fskit.scene.input(k) else OnKeyPress(k) end
-    end)
 
     buildPresets()
     love.filesystem.createDirectory("data")
     alarms = Alarm.LoadAll()
     if #alarms > 0 then Alarm.SaveAll(alarms) end   -- persist source->save on first run
     tryLoadSound()
+
+    SC.register(SCENES)
+    fskit.hookInput()
+    SC.start("main")
 end
 
 function love.update(dt)
-    fskit.scene.update(dt)     -- motion clock + shared modal overlay (exit dialog)
+    SC.update(dt)          -- motion clock + overlay + scene (+ the ringing flash)
 
-    -- modal rise-in timer (any non-main, non-ringing scene)
-    if scene == "main" or scene == "ringing" then
-        modalT = 0
-    else
-        modalT = modalT + dt
-    end
-
-    if scene == "ringing" then
-        ringTimer = ringTimer + dt
-        if ringTimer >= 0.5 then ringTimer = 0; ringFlash = not ringFlash end
-        return
-    end
+    if SC.now() == "ringing" then return end
 
     local now       = os.date("*t")
     local minuteKey = now.hour * 60 + now.min
-    if minuteKey ~= lastFiredMin and now.sec == 0 then
-        for i, a in ipairs(alarms) do
-            if Alarm.ShouldFire(a) then
-                lastFiredMin = minuteKey
-                ringingIdx   = i
-                scene        = "ringing"
-                a.state      = "ringing"
-                startRinging()
-                Alarm.SaveAll(alarms)
-                break
-            end
+    -- a normal alarm is due in second 0 of its minute (once); a snoozed one the
+    -- moment its snooze runs out (checked every frame)
+    local due = minuteKey ~= lastFiredMin and now.sec == 0
+    for i, a in ipairs(alarms) do
+        if (due or a.state == "snoozed") and Alarm.ShouldFire(a) then
+            lastFiredMin = minuteKey
+            ringingIdx   = i
+            a.state      = "ringing"
+            Alarm.SaveAll(alarms)
+            -- an alarm outranks everything: close any dialog / keyboard that is open
+            SC.clearOverlay()
+            SC.go("ringing", nil, true)
+            break
         end
     end
 end
 
 function love.draw()
     fskit.screen.begin()
-
-    C("bg_main")
-    rect("fill", 0, 0, SW, SH)
-
-    drawHeader()
-    drawClock()
-    drawAlarmList()
-
-    -- Main screen bottom bar
-    if scene == "main" then
-        drawBottomBar()
-    end
-
-    -- Scene overlays -- lift ~8px on open for the shared rise-in feel
-    if scene == "edit" or scene == "preset_time" or scene == "label_pick"
-        or scene == "keyboard" or scene == "theme" then
-        love.graphics.push()
-        love.graphics.translate(0, modalRise())
-        if scene == "edit"        then drawEditModal()   end
-        if scene == "preset_time" then drawPresetTime()  end
-        if scene == "label_pick"  then drawLabelPicker() end
-        if scene == "keyboard"    then drawKeyboard()    end
-        if scene == "theme"       then drawThemePicker() end
-        love.graphics.pop()
-    end
-    if scene == "ringing" then drawRinging() end
-
-    fskit.scene.draw()   -- paints the shared exit dialog if open
-
+    setC("bg_main"); rect("fill", 0, 0, L.SW, L.SH)
+    SC.draw()
     fskit.screen.finish()
 end
 
-function love.resize(w, h)
-    fskit.screen.resize(w, h)
-end
-
--- ============================================================
--- INPUT ROUTING   (love callbacks are wired by fskit.input.hook in love.load)
--- ============================================================
-function OnKeyPress(key)
-    -- ---- Ringing ----
-    if scene == "ringing" then
-        local a = alarms[ringingIdx]
-        if key == "b" then
-            stopRinging()
-            a.state = "idle"
-            if a.repeat_days == 0 then a.enabled = false end
-            scene = "main"
-            Alarm.SaveAll(alarms)
-        elseif key == "a" then
-            stopRinging()
-            a.state       = "snoozed"
-            a.snooze_until = os.time() + Config.SNOOZE_OPTIONS[a.snooze_idx] * 60
-            scene = "main"
-            Alarm.SaveAll(alarms)
-        end
-        return
-    end
-
-    -- ---- Theme picker ----
-    if scene == "theme" then
-        local n = fskit.theme.count()
-        if key == "up"   then themeSelIdx = themeSelIdx > 1 and themeSelIdx - 1 or n end
-        if key == "down" then themeSelIdx = themeSelIdx < n and themeSelIdx + 1 or 1 end
-        if key == "a" then
-            fskit.theme.set(themeSelIdx)   -- persists via Config.SaveTheme
-            scene = "main"
-        end
-        if key == "b" then scene = "main" end
-        return
-    end
-
-    -- ---- Keyboard ----
-    if scene == "keyboard" then
-        local rows = Config.KB_ROWS
-        if key == "up" then
-            kbRow = kbRow > 1 and kbRow - 1 or #rows
-            kbCol = math.min(kbCol, #rows[kbRow])
-        elseif key == "down" then
-            kbRow = kbRow < #rows and kbRow + 1 or 1
-            kbCol = math.min(kbCol, #rows[kbRow])
-        elseif key == "left" then
-            kbCol = kbCol > 1 and kbCol - 1 or #rows[kbRow]
-        elseif key == "right" then
-            kbCol = kbCol < #rows[kbRow] and kbCol + 1 or 1
-        elseif key == "a" then
-            local ch = rows[kbRow][kbCol]
-            if ch == "DONE" then
-                if kbText ~= "" then editAlarm.label = kbText end
-                scene = "edit"
-            elseif ch == "BACK" then
-                kbText = kbText:sub(1, -2)
-            elseif ch == "SPACE" then
-                if #kbText < kbMaxLen then kbText = kbText .. " " end
-            else
-                if #kbText < kbMaxLen then
-                    local out = kbCapsLock and ch:upper() or ch
-                    kbText = kbText .. out
-                end
-            end
-        elseif key == "y" then
-            kbCapsLock = not kbCapsLock
-        elseif key == "r1" then
-            -- shortcut for the Enter key
-            if kbText ~= "" then editAlarm.label = kbText end
-            scene = "edit"
-        elseif key == "b" then
-            scene = "edit"   -- cancel keyboard, back to edit
-		elseif key == "x" then
-			kbText = kbText:sub(1, -2)
-        end
-        return
-    end
-
-    -- ---- Label picker ----
-    if scene == "label_pick" then
-        local n = #Config.PRESET_LABELS
-        local cols = 2
-        if key == "up"    then labelSelIdx = labelSelIdx > cols and labelSelIdx - cols or labelSelIdx end
-        if key == "down"  then labelSelIdx = labelSelIdx + cols <= n and labelSelIdx + cols or labelSelIdx end
-        if key == "left"  then labelSelIdx = labelSelIdx > 1 and labelSelIdx - 1 or 1 end
-        if key == "right" then labelSelIdx = labelSelIdx < n and labelSelIdx + 1 or n end
-        if key == "a" then
-            local chosen = Config.PRESET_LABELS[labelSelIdx]
-            if chosen == "Custom..." then
-                kbText = editAlarm.label
-                kbRow, kbCol = 1, 1
-                scene = "keyboard"
-            else
-                editAlarm.label = chosen
-                scene = "edit"
-            end
-        end
-        if key == "b" then scene = "edit" end
-        return
-    end
-
-    -- ---- Preset time picker ----
-    if scene == "preset_time" then
-        local total     = #presetList
-        local currPage  = math.ceil(presetIdx / PRESET_PAGE)
-        local totalPage = math.ceil(total / PRESET_PAGE)
-
-        if key == "up"    then presetIdx = presetIdx > 1 and presetIdx - 1 or total end
-        if key == "down"  then presetIdx = presetIdx < total and presetIdx + 1 or 1 end
-        if key == "l1"    then
-            local np = currPage > 1 and currPage - 1 or totalPage
-            presetIdx = (np - 1) * PRESET_PAGE + 1
-        end
-        if key == "r1"    then
-            local np = currPage < totalPage and currPage + 1 or 1
-            presetIdx = (np - 1) * PRESET_PAGE + 1
-        end
-        if key == "a" then
-            local p = presetList[presetIdx]
-            editAlarm.hour   = p.hour
-            editAlarm.minute = p.minute
-            scene = "edit"
-        end
-        if key == "b" then scene = "edit" end
-        return
-    end
-
-    -- ---- Edit modal ----
-    if scene == "edit" then
-        if key == "up" then
-            editField = editField > 1 and editField - 1 or #EDIT_FIELDS
-        elseif key == "down" then
-            editField = editField < #EDIT_FIELDS and editField + 1 or 1
-
-        elseif key == "right" then
-            if editField == 1 then editAlarm.hour = (editAlarm.hour + 1) % 24
-            elseif editField == 2 then editAlarm.minute = (editAlarm.minute + 1) % 60
-            elseif editField == 4 then editRepDay = editRepDay < 7 and editRepDay + 1 or 1
-            elseif editField == 5 then
-                local n = #Config.SNOOZE_OPTIONS
-                editAlarm.snooze_idx = editAlarm.snooze_idx < n and editAlarm.snooze_idx + 1 or 1
-            elseif editField == 6 then editAlarm.enabled = not editAlarm.enabled
-            end
-
-        elseif key == "left" then
-            if editField == 1 then editAlarm.hour = (editAlarm.hour - 1 + 24) % 24
-            elseif editField == 2 then editAlarm.minute = (editAlarm.minute - 1 + 60) % 60
-            elseif editField == 4 then editRepDay = editRepDay > 1 and editRepDay - 1 or 7
-            elseif editField == 5 then
-                local n = #Config.SNOOZE_OPTIONS
-                editAlarm.snooze_idx = editAlarm.snooze_idx > 1 and editAlarm.snooze_idx - 1 or n
-            elseif editField == 6 then editAlarm.enabled = not editAlarm.enabled
-            end
-
-        elseif key == "l1" then
-            if editField == 1 then editAlarm.hour = (editAlarm.hour - 1 + 24) % 24
-            elseif editField == 2 then editAlarm.minute = (editAlarm.minute - 10 + 60) % 60
-            end
-        elseif key == "r1" then
-            if editField == 1 then editAlarm.hour = (editAlarm.hour + 1) % 24
-            elseif editField == 2 then editAlarm.minute = (editAlarm.minute + 10) % 60
-            end
-
-        elseif key == "a" then
-            if editField == 3 then
-                -- Open label picker
-                labelSelIdx = 1
-                scene = "label_pick"
-            elseif editField == 4 then
-                local mask = bit.lshift(1, editRepDay - 1)
-                editAlarm.repeat_days = bit.bxor(editAlarm.repeat_days, mask)
-            else
-                -- Save
-                saveEditAlarm() 
-            end
-			elseif key == "start" then
-				saveEditAlarm()   -- save from anywhere in the edit screen
-
-        elseif key == "x" and editField == 4 then
-            editAlarm.repeat_days = 0
-
-        elseif key == "y" then
-            -- Open preset time picker, pre-select closest time
-            local target = editAlarm.hour * 60 + editAlarm.minute
-            local best, bestDist = 1, math.huge
-            for pi, p in ipairs(presetList) do
-                local d = math.abs(p.hour * 60 + p.minute - target)
-                if d < bestDist then bestDist = d; best = pi end
-            end
-            presetIdx = best
-            scene = "preset_time"
-
-        elseif key == "b" then
-            scene = "main"
-        end
-        return
-    end
-
-    -- ---- Main screen ----
-    if scene == "main" then
-        if key == "up"   then selIdx = selIdx > 1 and selIdx - 1 or math.max(1, #alarms) end
-        if key == "down" then selIdx = selIdx < #alarms and selIdx + 1 or 1 end
-
-        if key == "a" and #alarms > 0 then
-            local a = alarms[selIdx]
-            editAlarm = {
-                hour=a.hour, minute=a.minute, label=a.label,
-                repeat_days=a.repeat_days, enabled=a.enabled,
-                snooze_idx=a.snooze_idx, state=a.state,
-                snooze_until=a.snooze_until,
-                _idx=selIdx, _isNew=false
-            }
-            editField = 1; editRepDay = 1
-            scene = "edit"
-        end
-
-        if key == "x" and #alarms > 0 then
-            alarms[selIdx].enabled = not alarms[selIdx].enabled
-            Alarm.SaveAll(alarms)
-        end
-
-        if key == "y" then
-            if #alarms < Config.MAX_ALARMS then
-                local now = os.date("*t")
-                editAlarm = Alarm.New(now.hour, now.min, "Alarm " .. (#alarms + 1), 0, true)
-                editAlarm._isNew = true
-                editField = 1; editRepDay = 1
-                scene = "edit"
-            end
-        end
-
-        if key == "l1" and #alarms > 0 then
-            table.remove(alarms, selIdx)
-            if selIdx > #alarms and selIdx > 1 then selIdx = selIdx - 1 end
-            Alarm.SaveAll(alarms)
-        end
-
-        if key == "r1" then
-            themeSelIdx = fskit.theme.index()
-            scene = "theme"
-        end
-
-        if key == "b" then openQuitDialog() end
-    end
-end
+function love.resize(w, h) fskit.screen.resize(w, h) end
 
 -- ============================================================
 -- QUIT  (top-level: fires however the app is closed)
 -- ============================================================
 function love.quit()
     Alarm.SaveAll(alarms)
-    Config.SaveTheme(fskit.theme.index())   -- theme is also saved on change; belt and braces
+    Config.SaveTheme(fskit.theme.id())   -- theme is also saved on change; belt and braces (the ID, not the index)
     return false
 end

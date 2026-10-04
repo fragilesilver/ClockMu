@@ -1,136 +1,195 @@
 -- fskit/ui/dialog.lua
--- Modal confirm card: dim scrim, centred bg_panel card, static crisp border in
--- `tone`, A=confirm / B=cancel button block. Registers itself as the scene
--- overlay so it draws over the frozen scene and eats input until dismissed.
+-- Modal confirm card, Andromeda style: dim scrim, a centred bg_panel card with an
+-- 8 px bar of the tone colour along its top, the title in display type, and two
+-- buttons: B (cancel, secondary) and A (confirm, filled). A confirms, B cancels.
+-- The glyph in each button reacts to its physical button like the footer's.
 --
 --   fskit.ui.dialog.open{
---     title = "Exit ClockMu?", body = "Are you sure you want to quit?",
---     confirm = "Quit", cancel = "Cancel", tone = "accent",
+--     title = "Quit ClockMu?", body = "Alarms only ring while ClockMu is open.",
+--     confirm = "Quit", cancel = "Stay", tone = "warn",      -- tone: accent | warn | danger
 --     onConfirm = function() love.event.quit() end,
 --     onCancel  = function() end,
 --   }
--- The card grows to fit: taller for every body line past the third, wider
--- for a long title or line (up to the screen); a short dialog keeps the
--- classic 340x156. A line still too wide for the screen slides
--- (fskit.ui.marquee) instead of overflowing.
+--   fskit.ui.dialog.confirmExit("ClockMu")      -- the standard "Quit <App>?"
+--
+-- The card is sized to its text (never under its buttons): taller for each body
+-- line, wider for a long title or line, up to the screen's safe area.
+-- Registers itself as the scene overlay: it draws over the frozen scene and eats
+-- input until dismissed. For an engine without fskit.scene (JarMu):
+--   local st = dialog.state()
+--   each frame: dialog.update(st, dt); dialog.render(opts, st)
+--   on a button: A -> confirm, B -> cancel (you handle your own input)
 
-local theme  = require("fskit.theme")
-local font   = require("fskit.font")
-local glyph  = require("fskit.glyph")
-local screen = require("fskit.screen")
-local layout = require("fskit.layout")
-local scenes = require("fskit.scene")
+local theme   = require("fskit.theme")
+local font    = require("fskit.font")
+local glyph   = require("fskit.glyph")
+local screen  = require("fskit.screen")
+local layout  = require("fskit.layout")
+local scenes  = require("fskit.scene")
+local motion  = require("fskit.motion")
+local input   = require("fskit.input")
+local util    = require("fskit.ui.util")
 local marquee = require("fskit.ui.marquee")
+local footer  = require("fskit.ui.footer")
 
 local dialog = {}
 
--- Card geometry for these opts, from the fonts' real metrics. Returns
--- { dw, dh, dx, dy, lines, lh, body_y, body_end, by, bh }; body_end must not
--- pass by (the buttons' top) -- the UI tests check exactly that.
+dialog.BTN_H   = 40
+dialog.PAD     = 22
+dialog.MIN_W   = 360
+
+-- Card geometry for these opts, from the real font metrics. body_end must not
+-- pass by (the buttons' top); tests check exactly that at every screen size.
 function dialog.geometry(opts)
     local SW, SH = screen.W, screen.H
     local lines = {}
     if opts.body then
         for line in (opts.body .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
     end
-    local lh, bh = font.sm:getHeight(), 38
-    -- title at +20, body from +54, a gap, the buttons, 16 px margin
-    local dh = math.max(156, 54 + #lines * lh + 12 + bh + 16)
-    local want = 340
-    if opts.title then want = math.max(want, font.xl:getWidth(opts.title) + 40) end
-    for _, line in ipairs(lines) do want = math.max(want, font.sm:getWidth(line) + 32) end
-    local safe = screen.SAFE or 10
+    local tf, bf = font.dlg, font.body
+    local th = opts.title and tf:getHeight() or 0
+    local lh = bf:getHeight()
+    local pad = dialog.PAD
+    local bar = layout.DLG_BAR
+
+    local body_h = #lines * lh
+    local dh = bar + pad + th + (th > 0 and body_h > 0 and 8 or 0) + body_h
+        + ((th > 0 or body_h > 0) and 16 or 0) + dialog.BTN_H + pad - 4
+    local want = dialog.MIN_W
+    if opts.title then want = math.max(want, tf:getWidth(opts.title:upper()) + pad * 2) end
+    for _, line in ipairs(lines) do want = math.max(want, bf:getWidth(line) + pad * 2) end
+    local safe = screen.SAFE
     local dw = math.min(want, SW - 2 * safe)
     dh = math.min(dh, SH - 2 * safe)
-    local dx, dy = SW / 2 - dw / 2, SH / 2 - dh / 2
-    return { dw = dw, dh = dh, dx = dx, dy = dy, lines = lines, lh = lh,
-             body_y = dy + 54, body_end = dy + 54 + #lines * lh, by = dy + dh - bh - 16, bh = bh }
+    local dx, dy = (SW - dw) / 2, (SH - dh) / 2
+
+    local title_y = dy + bar + pad
+    local body_y = title_y + th + (th > 0 and 8 or 0)
+    return { dw = dw, dh = dh, dx = dx, dy = dy, lines = lines, lh = lh, bh = dialog.BTN_H,
+             title_y = title_y, body_y = body_y, body_end = body_y + body_h,
+             by = dy + dh - pad + 4 - dialog.BTN_H }
 end
 
-local function close(self, run)
-    scenes.clearOverlay()
-    if run and self._cb then self._cb() end
+-- animation state for one dialog
+function dialog.state()
+    return { t = 0, a = { pos = 0, vel = 0, t = motion.time() }, b = { pos = 0, vel = 0, t = motion.time() } }
 end
+
+function dialog.update(st, dt)
+    st.t = st.t + (dt or 0)
+    motion.spring(st.a, input.isShown("a") and 1 or 0, dt or 0)
+    motion.spring(st.b, input.isShown("b") and 1 or 0, dt or 0)
+end
+
+local TONES = { accent = "accent", warn = "warn", danger = "danger" }
+
+-- one button: fill/label colours, a reacting glyph, centred label
+local function button(label, icon, x, y, w, h, fillRole, textRole, spring)
+    local p = spring and spring.pos or 0
+    local k = 1 - 0.05 * p                                   -- the whole button dips a little
+    local cx, cy = x + w / 2, y + h / 2
+    love.graphics.push()
+    love.graphics.translate(cx, cy); love.graphics.scale(k, k); love.graphics.translate(-cx, -cy)
+    theme.rgba(fillRole)
+    love.graphics.rectangle("fill", x, y, w, h, layout.RADIUS, layout.RADIUS)
+
+    local f = font.md
+    love.graphics.setFont(f)
+    local g = glyph.get(icon)
+    local gw = 0
+    if g then gw = glyph.scaleFor(icon) * g:getWidth() + 8 end
+    local total = gw + f:getWidth(label)
+    local lx = x + (w - total) / 2
+    if g then
+        local sc = glyph.scaleFor(icon)
+        local gx, gy = lx + g:getWidth() * sc / 2, cy
+        theme.rgba(textRole)
+        love.graphics.draw(g, gx, gy, 0, sc * (1 - footer.SQUISH_X * p), sc * (1 - footer.SQUISH_Y * p),
+            g:getWidth() / 2, g:getHeight() / 2)
+    end
+    theme.rgba(textRole)
+    love.graphics.print(label, lx + gw, cy - f:getHeight() / 2)
+    love.graphics.pop()
+end
+
+-- draw the dialog (scrim, card, buttons) for opts and animation state st
+function dialog.render(opts, st)
+    local SW, SH = screen.W, screen.H
+    st = st or dialog.state()
+    local rise = 1 - motion.progress(st.t, 0.16)              -- 1 -> 0 over 160 ms
+    theme.rgba("bg_main", 0.66 * (1 - rise * 0.6))
+    love.graphics.rectangle("fill", 0, 0, SW, SH)
+
+    local g = dialog.geometry(opts)
+    local dx, dy, dw, dh = g.dx, g.dy + rise * 10, g.dw, g.dh
+    local toneRole = TONES[opts.tone or "accent"] or "accent"
+
+    -- card with the tone bar along the top
+    theme.rgba(toneRole)
+    love.graphics.rectangle("fill", dx, dy, dw, layout.DLG_BAR + layout.DLG_RADIUS, layout.DLG_RADIUS, layout.DLG_RADIUS)
+    theme.rgba("bg_panel")
+    love.graphics.rectangle("fill", dx, dy + layout.DLG_BAR, dw, dh - layout.DLG_BAR, layout.DLG_RADIUS, layout.DLG_RADIUS)
+
+    local off = dy - g.dy
+    if opts.title then
+        love.graphics.setFont(font.dlg)
+        theme.rgba(toneRole == "accent" and "accent_glow" or toneRole)
+        local up = opts.title:upper()
+        marquee(up, dx + dialog.PAD, g.title_y + off, dw - dialog.PAD * 2,
+            { font = font.dlg, active = true, align = "center" })
+    end
+    if #g.lines > 0 then
+        love.graphics.setFont(font.body)
+        theme.rgba("text_secondary")
+        local ly = g.body_y + off
+        for _, line in ipairs(g.lines) do
+            marquee(line, dx + dialog.PAD, ly, dw - dialog.PAD * 2,
+                { active = true, align = "center", font = font.body })
+            ly = ly + g.lh
+        end
+    end
+
+    -- buttons: B (secondary, left) and A (filled, right)
+    local gap = 12
+    local bw = (dw - dialog.PAD * 2 - gap) / 2
+    local by = g.by + off
+    local confirmRole = toneRole
+    button(opts.cancel or "Cancel", "b", dx + dialog.PAD, by, bw, g.bh, "bg_header", "text_primary", st.b)
+    button(opts.confirm or "OK", "a", dx + dialog.PAD + bw + gap, by, bw, g.bh, confirmRole,
+        util.readable(confirmRole), st.a)
+end
+
+local function close() scenes.clearOverlay() end
 
 function dialog.open(opts)
     opts = opts or {}
-    local self = { _cb = nil }
+    local self = {}
+    local st = dialog.state()
     local onConfirm, onCancel = opts.onConfirm, opts.onCancel
 
     function self.input(button)
         if button == "a" then
-            close(self); if onConfirm then onConfirm() end
+            close(); if onConfirm then onConfirm() end
         elseif button == "b" then
-            close(self); if onCancel then onCancel() end
+            close(); if onCancel then onCancel() end
         end
     end
-
-    function self.draw()
-        local SW, SH = screen.W, screen.H
-        theme.rgba("bg_main", 0.62)
-        love.graphics.rectangle("fill", 0, 0, SW, SH)
-
-        local g = dialog.geometry(opts)
-        local dw, dh, dx, dy, lines, lh, bh = g.dw, g.dh, g.dx, g.dy, g.lines, g.lh, g.bh
-        local tone = opts.tone or "accent"
-
-        theme.rgba("bg_panel")
-        love.graphics.rectangle("fill", dx, dy, dw, dh, 10, 10)
-        theme.rgba(tone)
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", dx + 1, dy + 1, dw - 2, dh - 2, 10, 10)
-
-        if opts.title then
-            love.graphics.setFont(font.xl)
-            local tw = font.xl:getWidth(opts.title)
-            theme.rgba(tone == "accent" and "accent_glow" or tone)
-            love.graphics.print(opts.title, SW / 2 - tw / 2, dy + 20)
-        end
-        if #lines > 0 then
-            -- line by line, so a line too long even for the widened card
-            -- slides instead of running off it (fskit.ui.marquee)
-            love.graphics.setFont(font.sm)
-            theme.rgba("text_secondary")
-            local ly = dy + 54
-            for _, line in ipairs(lines) do
-                marquee(line, dx + 16, ly, dw - 32, { active = true, align = "center", font = font.sm })
-                ly = ly + lh
-            end
-        end
-
-        -- buttons
-        local bw, gap = 120, 20
-        local total = bw * 2 + gap
-        local by = dy + dh - bh - 16
-        local cancelX = SW / 2 - total / 2
-        local okX = cancelX + bw + gap
-
-        theme.rgba("bg_main")
-        love.graphics.rectangle("fill", cancelX, by, bw, bh, 6, 6)
-        theme.rgba("separator")
-        love.graphics.rectangle("line", cancelX, by, bw, bh, 6, 6)
-        theme.rgba("accent")
-        love.graphics.rectangle("fill", okX, by, bw, bh, 6, 6)
-
-        local function btn(gx, gname, label, labelRole)
-            local g = glyph.get(gname)
-            local lx = gx + 12
-            if g then
-                local s = glyph.scaleFor(gname)
-                theme.rgba("text_primary")
-                love.graphics.draw(g, gx + 10, by + (bh - g:getHeight() * s) / 2, 0, s, s)
-                lx = gx + 10 + g:getWidth() * s + 6
-            end
-            love.graphics.setFont(font.sm)
-            theme.rgba(labelRole)
-            love.graphics.print(label, lx, by + (bh - font.sm:getHeight()) / 2)
-        end
-        btn(cancelX, "b", opts.cancel or "Cancel", "text_secondary")
-        btn(okX, "a", opts.confirm or "OK", "bg_main")
-    end
+    function self.update(dt) dialog.update(st, dt) end
+    function self.draw() dialog.render(opts, st) end
 
     scenes.setOverlay(self)
     return self
+end
+
+-- the standard "Quit <App>?": A quits, B stays
+function dialog.confirmExit(app, o)
+    o = o or {}
+    return dialog.open{
+        title = o.title or ("Quit " .. app .. "?"), body = o.body,
+        confirm = o.confirm or "Quit", cancel = o.cancel or "Stay", tone = o.tone or "warn",
+        onConfirm = o.onConfirm or function() love.event.quit() end,
+        onCancel = o.onCancel,
+    }
 end
 
 return dialog

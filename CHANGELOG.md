@@ -4,6 +4,42 @@ All notable changes to ClockMu are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-10-04
+
+The Andromeda release look, and a fix to snooze.
+
+### Fixed
+- **Snooze never rang again.** When the snooze ran out, 1.0 reset the alarm and
+  then required the clock to equal the alarm's own time again, which it is not
+  N minutes later; a snoozed alarm stayed silent until the same time the next
+  day (a one-shot: never). It now rings the moment its snooze runs out.
+- The theme is saved as an id; a 1.0 settings file (a bare number) is migrated.
+  (`love.quit` now saves the id too.)
+
+### Changed
+- **UI rebuilt on fskit 0.3.0** (Bold muOS-style): solid accent header and focus
+  block, Barlow type, a glyph footer that reacts to the buttons, a clock card with
+  the date, and the alarm screen with a big flashing time.
+- **Three screen sizes**: 640x480, 720x480 and 720x720; the launcher's `WxH` is
+  honoured and every layout derives from the screen.
+- **Ten themes** with the shared picker (5 colours, Y toggles dark / light).
+- **Buttons follow the shared contract.** Delete moved from L1 to **START** (and
+  asks first); Theme moved from R1 to **SELECT**; **L1/R1** now page, **L2/R2**
+  jump 100, in every list. In the editor L1/R1 still step hour / minute.
+- The editor, pickers and keyboard are full screens instead of modals; the
+  preset time and label pickers are scrolling lists.
+- **Keyboard**: the shared `fskit.ui.osk` with a symbols page (every ASCII
+  symbol) replaces the built-in one; labels are limited to 20 characters as before.
+- The alarm **takes over** if a dialog or the keyboard is open (it used to hide
+  behind the Quit? dialog), and ignores A/B for 0.35 s.
+- Adding a sixth alarm now explains the limit instead of doing nothing.
+
+### Added
+- `test/alarm_test.lua` (the alarm logic against a fake clock), a rewritten
+  `test/ui_smoke.lua` (every scene, ringing, snooze, dialogs, persistence),
+  `test/lovetest.sh` (the real app in LÖVE at 3 sizes, theme persistence and
+  migration), `test/build_check.sh`, `test/all.sh`, `test/REGRESSION.md`.
+
 ## [1.0.0] - 2026-09-06
 
 Reprogrammed for **muOS Andromeda 2606.0** and the full **RG35XX family**

@@ -6,7 +6,29 @@
 -- Canonical names: up down left right  a b x y  l1 r1 l2 r2  menu select start
 -- Semantics fixed for every fskit app: A = confirm, B = back / quit-from-root.
 
+local motion = require("fskit.motion")
+
 local input = {}
+
+-- Which buttons are down right now, for UI that reacts to a held button (the
+-- footer's glyphs). `held` is set on press and cleared on release; a very short
+-- tap is still reported as shown for MIN_SHOW seconds so it is visible.
+input.held      = {}
+input.pressedAt = {}
+input.MIN_SHOW  = 0.12
+
+function input.press(name)
+    input.held[name] = true
+    input.pressedAt[name] = motion.time()
+end
+
+function input.release(name) input.held[name] = nil end
+
+function input.isShown(name)
+    if input.held[name] then return true end
+    local at = input.pressedAt[name]
+    return at ~= nil and motion.time() - at < input.MIN_SHOW
+end
 
 -- SDL gamepad button -> canonical
 local PAD = {
@@ -60,7 +82,7 @@ function input.hook(dispatch)
             dispatch(n)
         elseif down[n] and value < 0.3 then
             down[n] = false
-            if input.held then input.held[n] = nil end   -- the axis "release"
+            input.release(n)                             -- the axis "release"
         end
     end
     -- Fallback for a pad with no gamecontroller mapping (rare on RG35XX). Skip

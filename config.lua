@@ -82,26 +82,18 @@ Config.PRESET_LABELS = {
 }
 
 -- ============================================================
--- ON-SCREEN KEYBOARD ROWS
--- ============================================================
-Config.KB_ROWS = {
-    {"1","2","3","4","5","6","7","8","9","0"},
-    {"q","w","e","r","t","y","u","i","o","p"},
-    {"a","s","d","f","g","h","j","k","l","-"},
-    {"z","x","c","v","b","n","m","!","?","_"},
-    {"SPACE","BACK","DONE"},
-}
-
--- ============================================================
--- THEME PERSISTENCE  (bare index)
+-- THEME PERSISTENCE  (settings.txt: the theme id, e.g. "ocean-light")
+-- 1.0 wrote a bare index (1-8); fskit.theme.bind migrates that to an id, so
+-- load returns whatever is in the file (an id or a legacy number) and save is
+-- handed the id.
 -- ============================================================
 function Config.LoadTheme()
     local s = Config.store.read(Config.SETTINGS_FILE)
-    return s and tonumber(s:match("%d+")) or nil
+    return s and s:match("^%s*([%w%-]+)") or nil
 end
 
-function Config.SaveTheme(index)
-    Config.store.write(Config.SETTINGS_FILE, tostring(index))
+function Config.SaveTheme(id)
+    Config.store.write(Config.SETTINGS_FILE, tostring(id))
 end
 
 return Config

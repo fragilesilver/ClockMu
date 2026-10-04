@@ -6,16 +6,16 @@ Built with LÖVE2D on the shared **[fskit](#-built-on-fskit)** kit. Jacaranda-co
 
 Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcuong1312](https://github.com/nvcuong1312).
 
-<img width="640" height="480" alt="Main Screen" src="https://github.com/user-attachments/assets/f20cbf92-68a0-4413-8677-75872a1069dd" />
 
 ### 🚀 Features
-- Set and manage multiple alarms
-- Repeat options: daily, weekly (specific days), or once
-- Snooze with custom durations (per alarm)
-- Preset time picker (every 15 minutes)
-- 8-colour in-app theme picker with light/dark balance
+- Up to 5 alarms: daily, specific weekdays, or once
+- Snooze per alarm (5 / 10 / 15 min); a snoozed alarm rings again when it runs out
+- Preset time picker (every 15 minutes) and a label picker with a full on-screen
+  keyboard (letters and symbols) for custom labels
+- Ten themes (Mustard, Crimson, Ocean, Funky, Andromeda, each dark and light)
+- Layouts for 640x480 (RG35XX family), 720x480 and 720x720 (the last two are
+  checked by screenshots only)
 - Data persistence across reboots, independent of LÖVE's save-dir
-- Letterboxed 640×480 render - safe on every RG35XX panel variant, and on HDMI-out
 
 ### 📥 Installation
 1. Download the latest `.muxapp` from [Releases](https://github.com/fragilesilver/ClockMu/releases).
@@ -25,47 +25,49 @@ Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcu
 
 ### 🎮 Controls
 
-#### Main Screen
+Same button contract as BatteryMu, SwapMu and JarMu: **A** confirm, **B** back
+(and "Quit?" on the first screen), **X** second action, **Y** add / option,
+**L1/R1** one page, **L2/R2** jump 100, **SELECT** settings.
+
+#### Alarm list
 | Button | Action |
 |--------|--------|
-| D-pad Up/Down | Navigate alarm list |
+| Up/Down, **L1/R1**, **L2/R2** | Move / page / jump |
 | **A** | Edit selected alarm |
 | **X** | Toggle alarm on/off |
-| **Y** | Add new alarm |
-| **L1** | Delete selected alarm |
-| **B** | Quit |
+| **Y** | Add new alarm (asks to delete one when 5 exist) |
+| **START** | Delete selected alarm (asks first) |
+| **SELECT** | Theme (Y toggles dark / light) |
+| **B** | Quit (asks first) |
 
-#### Edit Alarm
+#### Edit alarm
 | Button | Action |
 |--------|--------|
-| Up/Down | Move between fields (Hour / Minute / Label / Repeat / Snooze / Enabled) |
+| Up/Down | Move between fields (Hour / Minute / Label / Repeat days / Snooze / Enabled) |
 | Left/Right | Change value (±1 for hour/min, cycle options for others) |
-| **L1 / R1** | Change minute by ±10 |
-| **A** (on Repeat field) | Toggle selected day on/off |
-| **X** (on Repeat field) | Clear all days → set to "Once" |
-| **Y** | Open preset time picker (every 15 min) |
-| **A** (other fields) | Save alarm |
+| **L1 / R1** | Hour: ±1 h. Minute: ±10 min |
+| **A** on Label | Open the label picker |
+| **A** on Repeat days | Toggle the selected day |
+| **X** on Repeat days | Clear all days (Once) |
+| **A** on other fields, **START** | Save |
+| **Y** | Preset time picker |
 | **B** | Cancel |
 
-<img width="640" height="480" alt="Edit Alarm" src="https://github.com/user-attachments/assets/3588e73f-14de-4fd9-9de6-1929ad093cdd" />
-<br>
-<img width="640" height="480" alt="Keyboard" src="https://github.com/user-attachments/assets/fd8f3256-7145-45cc-89b9-a87eae28d600" />
+#### Pickers
+Preset times and labels are lists: Up/Down, **L1/R1** page, **L2/R2** jump,
+**A** select, **B** cancel. "Custom..." in the label picker opens the keyboard:
+d-pad moves, **A** types, **X** deletes, **Y** shift, **L1/R1** letters / symbols,
+**START** done, **B** cancel.
 
-#### Preset Time Picker
-| Button | Action |
-|--------|--------|
-| Up/Down | Scroll times |
-| Left/Right | Jump page |
-| **A** | Select time |
-| **B** | Cancel |
-
-#### When Alarm Rings
+#### When an alarm rings
 | Button | Action |
 |--------|--------|
 | **A** | Snooze (per alarm setting) |
 | **B** | Dismiss |
 
-<img width="640" height="480" alt="Alert" src="https://github.com/user-attachments/assets/a23ddbfa-3645-41f5-b1fa-833c9d0de528" />
+An alarm outranks everything: it takes over the screen even if a dialog or the
+keyboard is open. (A and B are ignored for the first third of a second so a
+button pressed just as it rings cannot dismiss it.)
 
 ### 💾 Data Persistence
 
@@ -87,9 +89,6 @@ Eight in-app colour themes (this is ClockMu's own picker, not a muOS theme):
 Bloody Red, Forest Green, Funky Purple, Intense Orange, Midnight Black,
 Ocean Blue, Yoga White, and the default Mustard.
 
-<img width="640" height="480" alt="Bloody Red Theme" src="https://github.com/user-attachments/assets/ac3266be-8f14-422f-a66d-714d422908c6" />
-<img width="640" height="480" alt="Forest Green Theme" src="https://github.com/user-attachments/assets/60808220-5e4b-4c50-8254-a30426a2b306" />
-<img width="640" height="480" alt="Ocean Blue Theme" src="https://github.com/user-attachments/assets/4dc2f7f2-ad23-435c-ad97-cda530dda675" />
 
 ### 🧩 Built on fskit
 

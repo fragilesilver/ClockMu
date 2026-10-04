@@ -1,20 +1,62 @@
 -- fskit/screen.lua
--- Fixed 640x480 virtual canvas, letterbox-scaled (never stretched) onto the
--- real framebuffer. Covers:
---   * every RG35XX variant (all 640x480 internally)
---   * HDMI-out on the Pro (1280x720) and any other target muOS hands us
---   * panel-variant edge crop / overscan  -> SAFE inset keeps chrome visible
+-- The virtual canvas. Its size is the device's NATIVE size, so on the three muOS
+-- panels nothing is scaled:
 --
--- The app always draws in 0..640 x 0..480. Input is button-only, so no
--- coordinate remapping is needed.
+--   standard  640x480   RG35XX family (Pro, Plus, H, SP, 2024)
+--   wide      720x480   RG34XX-H / SP
+--   square    720x720   RGCubeXX
+--
+-- A window that matches none of them (HDMI, a desktop) gets the profile with the
+-- closest aspect ratio and is letterbox-scaled (never stretched). The profile is
+-- chosen when this file is first required (LÖVE creates the window before
+-- main.lua runs), so `local SW, SH = fskit.layout.SW, fskit.layout.SH` at the top
+-- of an app already sees the right size.
+--
+-- The app always draws in 0..W x 0..H. Input is button-only, so no coordinate
+-- remapping is needed.
 
 local screen = {}
 
-screen.W, screen.H = 640, 480
-screen.SAFE        = 10          -- virtual px kept clear at each edge for chrome
+screen.PROFILES = {
+    { name = "standard", w = 640, h = 480 },
+    { name = "wide",     w = 720, h = 480 },
+    { name = "square",   w = 720, h = 720 },
+}
+screen.SAFE = 10          -- virtual px kept clear at each edge for chrome
 
+local watchers = {}
 local canvas
 local scale, ox, oy = 1, 0, 0
+
+-- the profile for a window of w x h: exact match, else the closest aspect
+function screen.pick(w, h)
+    local best, bd = screen.PROFILES[1], math.huge
+    for _, p in ipairs(screen.PROFILES) do
+        if p.w == w and p.h == h then return p end
+        local d = math.abs(math.log((w / h) / (p.w / p.h)))
+        if d < bd then best, bd = p, d end
+    end
+    return best
+end
+
+-- choose the profile for a window size and tell layout (and anyone else)
+function screen.setSize(w, h)
+    local p = screen.pick(w or 640, h or 480)
+    screen.W, screen.H, screen.profile = p.w, p.h, p.name
+    for _, fn in ipairs(watchers) do fn(screen.W, screen.H, screen.profile) end
+    return p
+end
+
+function screen.onChange(fn)
+    watchers[#watchers + 1] = fn
+    fn(screen.W, screen.H, screen.profile)
+end
+
+screen.W, screen.H, screen.profile = 640, 480, "standard"
+do
+    local ok, w, h = pcall(function() return love.graphics.getDimensions() end)
+    if ok and w and h then screen.setSize(w, h) end
+end
 
 function screen.load()
     canvas = love.graphics.newCanvas(screen.W, screen.H)
@@ -29,6 +71,16 @@ function screen.resize(w, h)
     scale = math.min(w / screen.W, h / screen.H)
     ox = math.floor((w - screen.W * scale) / 2 + 0.5)
     oy = math.floor((h - screen.H * scale) / 2 + 0.5)
+end
+
+-- the virtual canvas (for tools/tests that capture a frame)
+function screen.canvas() return canvas end
+
+-- ImageData of the virtual canvas as drawn so far (tools/shot, tests). Call
+-- after the frame is drawn into it and before screen.finish().
+function screen.snapshot()
+    love.graphics.setCanvas()
+    return canvas:newImageData()
 end
 
 -- draw the frame into the virtual canvas

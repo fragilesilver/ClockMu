@@ -18,7 +18,7 @@
 --   function love.resize(w, h) fskit.screen.resize(w, h) end
 
 local fskit = {
-    _VERSION = "0.2.0",
+    _VERSION = "0.3.0",
     theme    = require("fskit.theme"),
     themes   = require("fskit.themes"),
     screen   = require("fskit.screen"),
@@ -36,6 +36,11 @@ local fskit = {
         list   = require("fskit.ui.list"),
         dialog = require("fskit.ui.dialog"),
         marquee = require("fskit.ui.marquee"),
+        card   = require("fskit.ui.card"),
+        textview = require("fskit.ui.textview"),
+        osk    = require("fskit.ui.osk"),
+        themepicker = require("fskit.ui.themepicker"),
+        util   = require("fskit.ui.util"),
     },
 }
 
@@ -50,16 +55,15 @@ end
 -- keeping fskit.input's held-button tracking for hold-to-confirm patterns.
 function fskit.hookInput()
     fskit.input.hook(function(name)
-        fskit.input.held = fskit.input.held or {}
-        fskit.input.held[name] = true
+        fskit.input.press(name)
         fskit.scene.input(name)
     end)
     local fromKey, fromPad = fskit.input.fromKey, fskit.input.fromPad
     function love.keyreleased(k)
-        local n = fromKey(k); if n and fskit.input.held then fskit.input.held[n] = nil end
+        local n = fromKey(k); if n then fskit.input.release(n) end
     end
     function love.gamepadreleased(_, b)
-        local n = fromPad(b); if n and fskit.input.held then fskit.input.held[n] = nil end
+        local n = fromPad(b); if n then fskit.input.release(n) end
     end
 end
 

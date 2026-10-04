@@ -32,6 +32,31 @@ end
 
 function motion.lerp(a, b, x) return a + (b - a) * x end
 
+-- Critically-underdamped spring, for presses that should settle with a little
+-- overshoot. s = { pos = 0, vel = 0 }; target 0..1. Substepped, so a slow frame
+-- (dt up to 0.1) cannot make it explode. With motion off it snaps to the target.
+motion.SPRING_K, motion.SPRING_C = 520, 24
+function motion.spring(s, target, dt)
+    if not motion.enabled then s.pos, s.vel = target, 0; return s.pos end
+    dt = math.min(dt or 0, 0.1)
+    local steps = math.max(1, math.ceil(dt / 0.008))
+    local h = dt / steps
+    for _ = 1, steps do
+        local acc = motion.SPRING_K * (target - s.pos) - motion.SPRING_C * s.vel
+        s.vel = s.vel + acc * h
+        s.pos = s.pos + s.vel * h
+    end
+    return s.pos
+end
+
+-- exponential approach: x moves a fraction of the way to target each second
+-- (rate ~ 1/seconds-to-settle). Frame-rate independent; snaps with motion off.
+function motion.approach(x, target, rate, dt)
+    if not motion.enabled then return target end
+    local k = 1 - math.exp(-rate * math.min(dt or 0, 0.1))
+    return x + (target - x) * k
+end
+
 -- ---- breathing / glow / shimmer -----------------------------------
 -- 0..1 sine; steady 1 when motion is off so callers still light up
 function motion.pulse(speed, phase)

@@ -108,13 +108,16 @@ function Alarm.ShouldFire(alarm)
 
     local now = os.date("*t")
 
-    -- Snoozed: check if snooze_until has passed
+    -- Snoozed: ring again once snooze_until has passed (whatever the time of day:
+    -- 1.0 fell through to the hh:mm match below, which is never true N minutes later,
+    -- so a snoozed alarm stayed silent until the same time next day)
     if alarm.state == "snoozed" and alarm.snooze_until then
         if os.time() >= alarm.snooze_until then
-            alarm.state = "idle"  -- fall through to normal check below
-        else
-            return false
+            alarm.state = "idle"
+            alarm.snooze_until = nil
+            return true
         end
+        return false
     end
 
     if alarm.state ~= "idle" then return false end

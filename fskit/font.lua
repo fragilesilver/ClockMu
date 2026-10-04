@@ -1,26 +1,39 @@
 -- fskit/font.lua
--- Shared family (Bold.ttf / Regular.ttf — byte-identical across ClockMu &
--- BatteryMu; JarMu adopts it). Canonical size names plus back-compat aliases so
--- both the ClockMu-era (big/med/sm/xs/body) and SwapMu-era
--- (huge/xl/lg/md/sm/xs/body/body_xs) call sites keep working.
+-- Andromeda type (docs/andromeda-design.md §3). Barlow (SIL OFL, bundled with
+-- Barlow-OFL.txt) for everything, Barlow Condensed ExtraBold for display text,
+-- Noto Sans as the automatic fallback for scripts Barlow lacks (Cyrillic,
+-- Greek, ...), so a non-Latin alarm label or game name still shows.
+--
+-- Old names keep working: big = huge, med = xl, body_sm = body_xs.
 
 local DIR = "fskit/assets/font/"
 
 local font = {}
 
-function font.load()
-    local B, R = DIR .. "Bold.ttf", DIR .. "Regular.ttf"
+local function make(file, size, fallback)
+    local f = love.graphics.newFont(DIR .. file, size)
+    if fallback then
+        local ok, fb = pcall(love.graphics.newFont, DIR .. fallback, size)
+        if ok and f.setFallbacks then f:setFallbacks(fb) end
+    end
+    return f
+end
 
-    font.clock   = love.graphics.newFont(B, 64)   -- opt-in, ClockMu big readout
-    font.huge    = love.graphics.newFont(B, 36)
-    font.xl      = love.graphics.newFont(B, 22)
-    font.lg      = love.graphics.newFont(B, 18)
-    font.md      = love.graphics.newFont(B, 14)
-    font.sm      = love.graphics.newFont(B, 12)
-    font.xs      = love.graphics.newFont(B, 10)
-    font.body    = love.graphics.newFont(R, 12)
-    font.body_lg = love.graphics.newFont(R, 16)
-    font.body_xs = love.graphics.newFont(R, 10)
+function font.load()
+    local DISPLAY, BOLD, REG = "BarlowCondensed-ExtraBold.ttf", "Barlow-SemiBold.ttf", "Barlow-Medium.ttf"
+    local NB, NR = "Bold.ttf", "Regular.ttf"                 -- Noto Sans
+
+    font.clock    = make(NB, 64)                             -- ClockMu readout: Noto's tabular digits
+    font.huge     = make(DISPLAY, 40, NB)                    -- big readouts (battery %)
+    font.xl       = make(DISPLAY, 28, NB)                    -- header title
+    font.dlg      = make(DISPLAY, 24, NB)                    -- dialog title
+    font.lg       = make(BOLD, 18, NB)
+    font.md       = make(BOLD, 16, NB)
+    font.sm       = make(BOLD, 14, NB)
+    font.xs       = make(BOLD, 12, NB)
+    font.body_lg  = make(REG, 18, NR)
+    font.body     = make(REG, 15, NR)
+    font.body_xs  = make(REG, 12, NR)
 
     -- canonical aliases from the spec / per-app history
     font.big     = font.huge
