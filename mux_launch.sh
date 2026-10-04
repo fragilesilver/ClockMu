@@ -63,6 +63,9 @@ VOLUME_MAX() {
     wpctl set-mute   @DEFAULT_AUDIO_SINK@ 0     >/dev/null 2>&1
 }
 
+# ClockMu re-asserts this at every ring (see main.lua): tell it wpctl is here.
+[ "$HAVE_WPCTL" = "1" ] && export CLOCKMU_ASSERT_VOLUME=1
+
 VOLUME_RESTORE() {
     [ "$HAVE_WPCTL" = "1" ] || return 0
     [ -n "$PREV_VOL" ] && wpctl set-volume @DEFAULT_AUDIO_SINK@ "${PREV_VOL}%" >/dev/null 2>&1

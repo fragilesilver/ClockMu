@@ -89,8 +89,34 @@ local function tryLoadSound()
         if ok then alarmSound = src; alarmSound:setLooping(true) end
     end
 end
+
+-- On the device the launcher exports CLOCKMU_ASSERT_VOLUME=1: an alarm must be
+-- audible, so at every ring the PipeWire sink is put back to 100 % and unmuted
+-- (the launcher did this once at start; the volume keys, or muOS, may have moved
+-- it since, e.g. during a 5-minute snooze), and one line goes to clockmu.log with
+-- what the sink and the source look like. Never set on a desktop.
+local function ringAudio(stage)
+    if os.getenv("CLOCKMU_ASSERT_VOLUME") ~= "1" then return end
+    if stage == "before" then
+        os.execute("wpctl set-volume @DEFAULT_AUDIO_SINK@ 100% >/dev/null 2>&1; "
+            .. "wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 >/dev/null 2>&1")
+    else
+        local p = io.popen("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>&1")
+        local v = p and (p:read("*l") or "?") or "?"
+        if p then p:close() end
+        print(string.format("[ClockMu] ring %s: sink '%s' | source %s, playing=%s | love volume %.2f",
+            os.date("%H:%M:%S"), v, alarmSound and "loaded" or "MISSING",
+            tostring(alarmSound and alarmSound:isPlaying()), love.audio.getVolume()))
+        io.stdout:flush()
+    end
+end
+
 local function startRinging()
-    if alarmSound then alarmSound:stop(); alarmSound:play() end
+    if alarmSound then alarmSound:stop() end
+    tryLoadSound()                 -- a fresh source each ring: nothing stale from the last one
+    ringAudio("before")
+    if alarmSound then alarmSound:play() end
+    ringAudio("after")
     ringTimer, ringAge, ringFlash = 0, 0, false
 end
 local function stopRinging()

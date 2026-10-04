@@ -34,6 +34,12 @@ The Andromeda release look, and a fix to snooze.
   behind the Quit? dialog), and ignores A/B for 0.35 s.
 - Adding a sixth alarm now explains the limit instead of doing nothing.
 
+- **Alarm audio is re-asserted at every ring** (device only, `CLOCKMU_ASSERT_VOLUME`
+  from the launcher): a fresh sound source, the PipeWire sink put back to 100 % and
+  unmuted, and one line in `clockmu.log` (sink state, source playing) per ring. A
+  silent snooze re-ring was reported; the logic plays in LÖVE on a PC, so this
+  covers the volume / stale-stream causes and records what the device sees.
+
 ### Added
 - `test/alarm_test.lua` (the alarm logic against a fake clock), a rewritten
   `test/ui_smoke.lua` (every scene, ringing, snooze, dialogs, persistence),
