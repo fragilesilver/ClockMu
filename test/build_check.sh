@@ -16,7 +16,7 @@ for f in main.lua alarm.lua config.lua conf.lua mux_launch.sh mux_lang.ini bin/l
          fskit/assets/font/Barlow-SemiBold.ttf fskit/assets/font/Barlow-Medium.ttf \
          fskit/assets/font/BarlowCondensed-ExtraBold.ttf fskit/assets/font/Barlow-OFL.txt \
          fskit/assets/font/Bold.ttf fskit/assets/font/Regular.ttf \
-         fskit/assets/glyph/a.png fskit/assets/glyph/start.png fskit/assets/glyph/select.png fskit/assets/glyph/l1.png; do need "$f"; done
+         fskit/assets/glyph/a.png fskit/assets/glyph/start.png fskit/assets/glyph/select.png fskit/assets/glyph/l1.png glyph/clockmu.png glyph/clockmu-logo.png; do need "$f"; done
 if printf '%s\n' "$LIST" | grep -qE "^$B/(test|save|data|dist|fskit/(tools|test))/|\.git/"; then
     fail=$((fail+1)); echo "  FAIL: dev-only files or runtime data in the package"
 else pass=$((pass+1)); fi
