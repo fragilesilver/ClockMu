@@ -142,6 +142,23 @@ ck(file("settings.txt") == "ocean-light", "the theme id is saved (" .. file("set
 press("select"); settle(); press("down"); press("b"); settle(); now("main", "theme cancel -> list")
 ck(fskit.theme.id() == "ocean-light", "cancel restores the theme from when it opened")
 
+-- ---- hold a direction to keep moving: Right held on the hour steps it again and again
+do
+    press("y"); settle(); now("edit", "Y -> a new alarm for the repeat test")
+    ck(onScreen("07:00"), "a new alarm starts at the fake time 07:00")
+    fskit.input.press("right"); frame(150)                  -- ~2.4 s held: 1 + ~26 steps
+    fskit.input.release("right"); frame(2)
+    local held = nil
+    for _, t in ipairs(seen) do if t:match("^%d%d:00$") then held = t end end
+    ck(held ~= nil and held ~= "07:00", "holding Right moved the hour on by itself (" .. tostring(held) .. ")")
+    local before = held
+    frame(60)
+    local after = nil
+    for _, t in ipairs(seen) do if t:match("^%d%d:00$") then after = t end end
+    ck(after == before, "...and it stops when the button is released (" .. tostring(after) .. ")")
+    press("b"); settle(); now("main", "B cancels the new alarm")
+end
+
 -- ---- ringing: an alarm outranks a dialog, A/B ignored for a moment, snooze comes back
 press("b"); frame(3)
 ck(fskit.scene.overlay() ~= nil, "B on the list opens Quit?")

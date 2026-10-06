@@ -10,6 +10,7 @@
 -- Wire from love callbacks: fskit.scene.update(dt) / .draw() / .input(name)
 
 local motion = require("fskit.motion")
+local input  = require("fskit.input")
 
 local TRANS_SPEED = 4.0            -- BatteryMu value (~250ms each way)
 
@@ -56,6 +57,7 @@ function scene.overlay() return overlay end
 -- ---- love wiring -------------------------------------------------
 function scene.update(dt)
     motion.update(dt)
+    input.repeatUpdate(dt, function(name) scene.input(name) end)   -- a held direction keeps moving
     if overlay and overlay.update then overlay.update(dt) end
     if cur and cur.update then cur.update(dt) end
 

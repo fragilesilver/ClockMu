@@ -17,12 +17,46 @@ input.held      = {}
 input.pressedAt = {}
 input.MIN_SHOW  = 0.12
 
+-- Hold a direction to keep moving: after REPEAT_DELAY the held d-pad direction repeats every
+-- REPEAT_RATE seconds, through the same path as a press (scene.update drives it:
+-- input.repeatUpdate). `input.repeating` is true while a repeat is being delivered, so a widget
+-- can stop at the end of a list instead of wrapping round and round.
+input.REPEAT_DELAY = 0.40
+input.REPEAT_RATE  = 0.075
+input.repeating    = false
+local REPEATABLE = { up = true, down = true, left = true, right = true }
+local due = {}                          -- direction -> seconds until its next repeat
+
 function input.press(name)
     input.held[name] = true
     input.pressedAt[name] = motion.time()
+    if REPEATABLE[name] then due[name] = input.REPEAT_DELAY end
 end
 
-function input.release(name) input.held[name] = nil end
+function input.release(name)
+    input.held[name] = nil
+    due[name] = nil
+end
+
+-- advance the repeat clock by dt; fire(name) delivers each repeat. A long frame never
+-- floods: at most 4 repeats are delivered per call.
+function input.repeatUpdate(dt, fire)
+    for name, t in pairs(due) do
+        if not input.held[name] then
+            due[name] = nil
+        else
+            t = t - (dt or 0)
+            if t <= 0 then
+                input.repeating = true
+                local n = 0
+                while t <= 0 and n < 4 do fire(name); t = t + input.REPEAT_RATE; n = n + 1 end
+                input.repeating = false
+                if t <= 0 then t = input.REPEAT_RATE end
+            end
+            due[name] = t
+        end
+    end
+end
 
 function input.isShown(name)
     if input.held[name] then return true end
@@ -90,9 +124,14 @@ function input.hook(dispatch)
     -- would register twice.
     function love.joystickhat(js, _, dir)
         if js.isGamepad and js:isGamepad() then return end
-        local m = { u = "up", d = "down", l = "left", r = "right" }
-        local n = m[dir]
-        if n then dispatch(n) end
+        -- a hat reports its whole state; deliver the directions that just came on and release the
+        -- ones that went off (so a held direction repeats, and stops when the hat is let go)
+        local want = { up = dir:find("u") ~= nil, down = dir:find("d") ~= nil,
+                       left = dir:find("l") ~= nil, right = dir:find("r") ~= nil }
+        for _, n in ipairs({ "up", "down", "left", "right" }) do
+            if want[n] and not input.held[n] then dispatch(n)
+            elseif not want[n] and input.held[n] then input.release(n) end
+        end
     end
 end
 

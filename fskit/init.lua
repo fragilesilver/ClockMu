@@ -18,7 +18,7 @@
 --   function love.resize(w, h) fskit.screen.resize(w, h) end
 
 local fskit = {
-    _VERSION = "0.3.0",
+    _VERSION = "0.3.1",
     theme    = require("fskit.theme"),
     themes   = require("fskit.themes"),
     screen   = require("fskit.screen"),

@@ -36,3 +36,6 @@ Install, open ClockMu, then (your existing alarms and settings are kept):
     on its row meanwhile. Dismiss the second ring.
 12. **Footer glyphs** squish and glow while the button is pressed.
 13. Report anything odd with `clockmu.log` from the app folder.
+
+**Hold to repeat (fskit 0.3.1, new)**: hold Up/Down on any list (and on the keyboard, Left/Right): after a short
+pause it keeps moving, and it stops at the end of the list instead of wrapping round and round. It stops the moment you let go.

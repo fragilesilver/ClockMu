@@ -25,6 +25,7 @@ local scenes  = require("fskit.scene")
 local header  = require("fskit.ui.header")
 local footer  = require("fskit.ui.footer")
 local util    = require("fskit.ui.util")
+local input   = require("fskit.input")
 
 local osk = {}
 
@@ -137,10 +138,14 @@ function osk.new(opts)
 
     function self:input(b)
         local rows = self.rows[self.page]
-        if b == "up" then local r2 = (self.r - 2) % #rows + 1; self.c = nearest(r2); self.r = r2
-        elseif b == "down" then local r2 = self.r % #rows + 1; self.c = nearest(r2); self.r = r2
-        elseif b == "left" then self.c = (self.c - 2) % #rows[self.r] + 1
-        elseif b == "right" then self.c = self.c % #rows[self.r] + 1
+        -- a pressed direction wraps round the keyboard; a HELD one (input.repeating) stops at its edge
+        local hold = input.repeating
+        if b == "up" or b == "down" then
+            local r2 = b == "up" and (hold and math.max(1, self.r - 1) or (self.r - 2) % #rows + 1)
+                                 or (hold and math.min(#rows, self.r + 1) or self.r % #rows + 1)
+            if r2 ~= self.r then self.c = nearest(r2); self.r = r2 end
+        elseif b == "left" then self.c = hold and math.max(1, self.c - 1) or (self.c - 2) % #rows[self.r] + 1
+        elseif b == "right" then self.c = hold and math.min(#rows[self.r], self.c + 1) or self.c % #rows[self.r] + 1
         elseif b == "a" then press(key().label, self.page .. self.r .. "," .. self.c)
         elseif b == "x" then self.flash.DEL = 1; backspace()
         elseif b == "y" then if self.page == "abc" then self.flash.SHIFT = 1; self.shift = not self.shift end

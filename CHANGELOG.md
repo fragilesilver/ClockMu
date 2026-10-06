@@ -41,6 +41,7 @@ The Andromeda release look, and a fix to snooze.
   covers the volume / stale-stream causes and records what the device sees.
 
 ### Added
+- **Hold a direction to keep moving** in lists, pickers and the keyboard (fskit 0.3.1): it repeats after 0.4 s; a held direction stops at the ends of a list instead of wrapping.
 - `test/alarm_test.lua` (the alarm logic against a fake clock), a rewritten
   `test/ui_smoke.lua` (every scene, ringing, snooze, dialogs, persistence),
   `test/lovetest.sh` (the real app in LÖVE at 3 sizes, theme persistence and

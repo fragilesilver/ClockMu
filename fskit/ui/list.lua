@@ -25,6 +25,7 @@ local theme  = require("fskit.theme")
 local font   = require("fskit.font")
 local layout = require("fskit.layout")
 local motion = require("fskit.motion")
+local input  = require("fskit.input")
 local util   = require("fskit.ui.util")
 
 local list = {}
@@ -52,8 +53,9 @@ end
 -- the new selection for button k, or nil when k is not a navigation key
 function list.nav(sel, k, n, per)
     if n <= 0 then return nil end
-    if k == "up" then return sel <= 1 and n or sel - 1 end
-    if k == "down" then return sel >= n and 1 or sel + 1 end
+    -- pressing wraps round the ends; a HELD direction (input.repeating) stops at them
+    if k == "up" then return sel <= 1 and (input.repeating and 1 or n) or sel - 1 end
+    if k == "down" then return sel >= n and (input.repeating and n or 1) or sel + 1 end
     local d = ({ l1 = -(per or 1), r1 = per or 1, l2 = -list.JUMP, r2 = list.JUMP })[k]
     if not d then return nil end
     return util.clamp(sel + d, 1, n)
