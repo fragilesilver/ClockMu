@@ -14,7 +14,7 @@ for f in main.lua alarm.lua config.lua conf.lua mux_launch.sh mux_lang.ini bin/l
          fskit/VERSION fskit/init.lua fskit/screen.lua fskit/themes.lua fskit/ui/osk.lua fskit/ui/themepicker.lua \
          fskit/ui/card.lua fskit/ui/textview.lua \
          fskit/assets/font/Barlow-SemiBold.ttf fskit/assets/font/Barlow-Medium.ttf \
-         fskit/assets/font/BarlowCondensed-ExtraBold.ttf fskit/assets/font/Barlow-OFL.txt \
+         fskit/assets/font/BarlowCondensed-ExtraBold.ttf fskit/assets/font/Barlow-OFL.txt fskit/assets/font/NotoSans-OFL.txt \
          fskit/assets/font/Bold.ttf fskit/assets/font/Regular.ttf \
          fskit/assets/glyph/a.png fskit/assets/glyph/start.png fskit/assets/glyph/select.png fskit/assets/glyph/l1.png glyph/clockmu.png glyph/clockmu-logo.png; do need "$f"; done
 if printf '%s\n' "$LIST" | grep -qE "^$B/(test|save|data|dist|fskit/(tools|test))/|\.git/"; then
