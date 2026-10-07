@@ -8,7 +8,7 @@ APP="ClockMu"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 VERSION="${1:-$(cat "$ROOT/VERSION" 2>/dev/null || echo dev)}"
 DIST="$ROOT/dist"
-STAGE="$DIST/build/mnt/mmc/MUOS/application/$APP"
+STAGE="$DIST/build/$APP"       # the app folder sits at the ROOT of the archive (Archive Manager extracts into application/)
 
 echo "==> Building $APP $VERSION"
 rm -rf "$DIST"

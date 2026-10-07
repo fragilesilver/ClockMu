@@ -17,6 +17,7 @@ The Andromeda release look, and a fix to snooze.
   (`love.quit` now saves the id too.)
 
 ### Changed
+- **Package layout**: the app folder is now at the **root of the `.muxapp`** (`ClockMu/...`), as current muOS expects (Archive Manager extracts the archive into `application/`); the old `mnt/mmc/MUOS/application/` prefix is gone. `test/build_check.sh` fails on any entry outside the app folder, and on links or special files, which muOS rejects.
 - **UI rebuilt on fskit 0.3.0** (Bold muOS-style): solid accent header and focus
   block, Barlow type, a glyph footer that reacts to the buttons, a clock card with
   the date, and the alarm screen with a big flashing time.
