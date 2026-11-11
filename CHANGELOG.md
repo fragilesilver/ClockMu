@@ -4,6 +4,17 @@ All notable changes to ClockMu are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-11-12
+
+The muOS **Supernova (2612)** line, built from the same code as 2.0.0 (Andromeda 2606.0).
+What was checked against the Supernova source (`repos/*` main, 2026-11-11), not yet on a device:
+- **Install and launch unchanged**: a `.muxapp` still extracts to `MUOS/application` (now behind a
+  storage-write lock), and the app is still started as `mux_launch.sh <app folder>`.
+  `func.sh`, `GET_VAR` keys and the storage binds are the same.
+- **CPU governors became performance levels**: this app never sets a governor, so muOS's
+  per-app Performance setting applies as normal.
+- No code change beyond 2.0.0.
+
 ## [2.0.0] - 2026-10-04
 
 The muOS **Andromeda (2606.0)** line. The 3.x line, built from the same code, is for Supernova (2612).
