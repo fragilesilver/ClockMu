@@ -4,6 +4,10 @@
 An alarm clock for **[muOS](https://muos.dev/) Andromeda** on the **Anbernic RG35XX family** (all Allwinner H700 - Pro, Plus, H, SP, 2024).
 Built with LÖVE2D on the shared **[fskit](#-built-on-fskit)** kit. Jacaranda-compatible.
 
+> **muOS versions:** **2.x** is for muOS 2606.0 **Andromeda**, **3.x** is for muOS 2612
+> **Supernova**. Both are built from the same code. The 3.x build has been checked against the
+> Supernova source only and has not yet run on a Supernova device.
+
 Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcuong1312](https://github.com/nvcuong1312).
 
 

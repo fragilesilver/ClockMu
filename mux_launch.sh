@@ -13,7 +13,12 @@ APP_NAME="ClockMu"
 # finally to the legacy rom-mount path so this launcher also works on Jacaranda.
 # ---------------------------------------------------------------------------
 APP_SUBPATH="application/$APP_NAME"
-APP_DIR="$MUOS_SHARE_DIR/$APP_SUBPATH"
+# The frontend runs us as "$RUN_APP"/mux_launch.sh "$RUN_APP" (internal/script/mux/frontend.sh,
+# Andromeda 2606.0 and Supernova 2612 alike), so $1 is our own folder. Trust it, then our own
+# location, then the bind paths below.
+APP_DIR="${1:-}"
+[ -n "$APP_DIR" ] && [ -f "$APP_DIR/mux_launch.sh" ] || APP_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+[ -n "$APP_DIR" ] && [ -f "$APP_DIR/mux_launch.sh" ] || APP_DIR="$MUOS_SHARE_DIR/$APP_SUBPATH"
 [ -d "$APP_DIR" ] || APP_DIR="$MUOS_STORE_DIR/$APP_SUBPATH"
 [ -d "$APP_DIR" ] || APP_DIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/$APP_SUBPATH"
 

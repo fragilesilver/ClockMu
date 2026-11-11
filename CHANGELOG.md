@@ -6,9 +6,12 @@ this project follows [Semantic Versioning](https://semver.org/).
 
 ## [2.0.0] - 2026-10-04
 
+The muOS **Andromeda (2606.0)** line. The 3.x line, built from the same code, is for Supernova (2612).
+
 The Andromeda release look, and a fix to snooze.
 
 ### Fixed
+- **Launcher finds its own folder first.** muOS starts every app as `<app folder>/mux_launch.sh <app folder>` (the same on Andromeda 2606.0 and Supernova 2612). The launcher now uses that argument, then its own location, and only then probes the storage bind paths as before. An app installed somewhere the probe did not expect now still starts.
 - **Snooze never rang again.** When the snooze ran out, 1.0 reset the alarm and
   then required the clock to equal the alarm's own time again, which it is not
   N minutes later; a snoozed alarm stayed silent until the same time the next
