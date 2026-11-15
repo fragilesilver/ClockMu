@@ -11,7 +11,8 @@ DIST="$ROOT/dist"
 STAGE="$DIST/build/$APP"       # the app folder sits at the ROOT of the archive (Archive Manager extracts into application/)
 
 echo "==> Building $APP $VERSION"
-rm -rf "$DIST"
+rm -rf "$STAGE"
+rm -f "$DIST/$APP-$VERSION.muxapp"
 mkdir -p "$STAGE"
 
 # Everything except repo meta / build output / runtime data.
