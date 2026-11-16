@@ -20,7 +20,7 @@ tar -C "$ROOT" \
     --exclude='./.git' --exclude='./dist' --exclude='./save' --exclude='./data' \
     --exclude='./.github' --exclude='./test' --exclude='*.log' --exclude='./build.sh' \
     --exclude='./README.md' --exclude='./CHANGELOG.md' --exclude='./LICENSE' \
-    --exclude='./VERSION' --exclude='./.gitignore' \
+    --exclude='./.gitignore' \
     -cf - . | tar -C "$STAGE" -xf -
 
 chmod +x "$STAGE/mux_launch.sh" "$STAGE/bin/love" 2>/dev/null || true
