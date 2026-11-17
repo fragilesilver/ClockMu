@@ -12,6 +12,22 @@ An alarm clock for **[muOS (MustardOS)](https://muos.dev/)** on the **Anbernic R
 
 *Drew inspiration from [BitMuos](https://github.com/nvcuong1312/bltMuos) by [nvcuong1312](https://github.com/nvcuong1312).*
 
+<p align="center">
+  <img src="./media/preview.png" alt="ClockMu Alarm Clock Preview" width="640" />
+</p>
+
+---
+
+## 📸 Screenshots
+
+| Alarm List & Status | Edit Alarm & Presets |
+| :---: | :---: |
+| <img src="./media/screenshot-alarms.png" alt="Alarm List" width="320"/> | <img src="./media/screenshot-edit.png" alt="Edit Alarm" width="320"/> |
+
+| On-Screen Keyboard | Theme Picker |
+| :---: | :---: |
+| <img src="./media/screenshot-keyboard.png" alt="On-Screen Keyboard" width="320"/> | <img src="./media/screenshot-themes.png" alt="Theme Picker" width="320"/> |
+
 ---
 
 ## 🚀 Features
