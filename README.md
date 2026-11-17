@@ -6,7 +6,7 @@ An alarm clock for **[muOS (MustardOS)](https://muos.dev/)** on the **Anbernic R
 
 > **muOS Releases:** The **Nov Release** includes packages for both:
 > - **Andromeda 2.0.0** — for muOS 2606.0 Andromeda (device-tested on RG35XX Pro)
-> - **Supernova 3.0.0** — for muOS 2612 Supernova (verified against Supernova source)
+> - **Supernova 3.0.0** — for muOS 2612 Supernova (device-tested on RG35XX Pro)
 >
 > Both builds share the same core code. Choose the `.muxapp` corresponding to your installed muOS version.
 
