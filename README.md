@@ -109,6 +109,14 @@ Alarms and configuration are stored in `save/` under the application directory (
 
 Ten in-app colour themes powered by the shared fskit palette: **Mustard** (default), **Crimson**, **Ocean**, **Funky**, and **Andromeda**, each available in both Dark and Light variants.
 
+| Dark | Light |
+| :---: | :---: |
+| <img src="./media/mustard-dark.png" alt="Overview Screen" width="320"/> | <img src="./media/mustard-light.png" alt="Details Screen" width="320"/> |
+| <img src="./media/crimson-dark.png" alt="Overview Screen" width="320"/> | <img src="./media/crimson-light.png" alt="Details Screen" width="320"/> |
+| <img src="./media/ocean-dark.png" alt="Overview Screen" width="320"/> | <img src="./media/ocean-light.png" alt="Details Screen" width="320"/> |
+| <img src="./media/funky-dark.png" alt="Overview Screen" width="320"/> | <img src="./media/funky-light.png" alt="Details Screen" width="320"/> |
+| <img src="./media/andromeda-dark.png" alt="Overview Screen" width="320"/> | <img src="./media/andromeda-light.png" alt="Details Screen" width="320"/> |
+
 ---
 
 ## 🧩 Built on fskit
